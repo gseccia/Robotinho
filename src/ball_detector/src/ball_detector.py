@@ -1,13 +1,11 @@
 #!/usr/bin/env python
 from __future__ import print_function
 
-#import roslib
-#roslib.load_manifest('mytest')
 import sys
 import rospy
 import cv2
-import cvlib as cv
-from cvlib.object_detection import draw_bbox
+
+#from object_detection import draw_bbox, detect_common_objects
 
 import numpy as np
 from geometry_msgs.msg import Twist
@@ -17,48 +15,66 @@ from cv_bridge import CvBridge, CvBridgeError
 
 
 
+from yolo import YOLO
+from PIL import Image as PilImage
+
+
 class ball_detector:
 
   def __init__(self):
     self.image_pub = rospy.Publisher("/robot_detector_output",Image, queue_size = 1)
 
     self.bridge = CvBridge()
-    self.image_sub = rospy.Subscriber("/robot1/camera1/image_raw",Image,self.callback, queue_size=1)
 
-    #self.ball_cascade = cv2.CascadeClassifier('/home/mivia/robotinho_ws/src/ball_detector/src/ball_cascade.xml')
+    self.yolo =  YOLO(model_path= '/home/mivia/robotinho_ws/src/ball_detector/src/weights.h5',
+        anchors_path= '/home/mivia/robotinho_ws/src/ball_detector/src/tiny_yolo_anchors.txt',
+        classes_path= '/home/mivia/robotinho_ws/src/ball_detector/src/soccer_ball_classes.txt',
+        score= 0.2,
+        iou = 0.3,
+        model_image_size = (320, 640),)
 
 
 
 
-  def callback(self,data):
+  def detect_soccer_ball(self):
     try:
+      data = rospy.wait_for_message("/robot1/camera1/image_raw",Image)
       cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+      pil_image= PilImage.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
+      print(pil_image)
     except CvBridgeError as e:
       print(e)
     
-    #print("cv_image: ", cv_image.shape)
+    print("cv_image: ", cv_image.shape)
+  
+
+    #bbox, label, conf = detect_common_objects(cv2.blur(cv_image,(3,3)), confidence=0.25, model='yolov3-tiny')
+    #print(len(bbox))
+    #print(label)
+    #for obj in label:
+    #  #if obj == "sports ball":
+    #      index = label.index(obj)
+    #      x1 = int(bbox[index][0])
+    #      y1 = int(bbox[index][1])
+    #      x2 = int(bbox[index][2])
+    #      y2 = int(bbox[index][3])
+    #      cv2.rectangle(cv_image, (x1,y1), (x2,y2), (0,255,0), 2)
     
-    bbox, label, conf = cv.detect_common_objects(cv_image, confidence=0.05)
-    print(len(bbox))
+    bbox, label, conf = self.yolo.detect_image(pil_image)
+    label=list(label)
+    print(len(label))
     for obj in label:
-      if obj == "sports ball":
+      #if obj == "sports ball":
           index = label.index(obj)
-          x1 = int(bbox[index][0])
-          y1 = int(bbox[index][1])
-          x2 = int(bbox[index][2])
-          y2 = int(bbox[index][3])
+          print(bbox[index])
+          y1 = max(0, np.floor(bbox[index][0] + 0.5).astype('int32'))
+          x1 = max(0, np.floor(bbox[index][1] + 0.5).astype('int32'))
+          y2 = min(cv_image.shape[0], np.floor(bbox[index][2] + 0.5).astype('int32'))
+          x2 = min(cv_image.shape[1], np.floor(bbox[index][3]+ 0.5).astype('int32'))
+          print(x1,y1,x2,y2)
           cv2.rectangle(cv_image, (x1,y1), (x2,y2), (0,255,0), 2)
 
-    #cv_gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
-    #print("cv_gray: ", cv_gray.shape)
 
-    #balls = self.ball_cascade.detectMultiScale(cv_gray, 1.5,2,8, minSize=(8,8))
-    #print(len(balls))
-    #for (x,y,w,h) in balls:
-    #    cv_image = cv2.rectangle(cv_image,(x,y),(x+w,y+h),(255,0,0),2)
-
-    #print("cv_image_mod: ", cv_image.shape)
-      
     ros_image = self.bridge.cv2_to_imgmsg(cv_image)
     self.image_pub.publish(ros_image)
     
@@ -67,12 +83,13 @@ class ball_detector:
 def main(args):
   rospy.init_node('ball_detector', anonymous=True)
   ic = ball_detector()
-  try:
-    rospy.spin()
-  except KeyboardInterrupt:
-    ic.stop()
-    print("Shutting down")
-  cv2.destroyAllWindows()
+  while not rospy.is_shutdown():
+    try:
+      ic.detect_soccer_ball()
+    except KeyboardInterrupt:
+      ic.stop()
+      print("Shutting down")
+      break
 
 if __name__ == '__main__':
     main(sys.argv)

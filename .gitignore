@@ -3,3 +3,5 @@ logs
 devel
 build
 .vscode
+
+*.pyc
