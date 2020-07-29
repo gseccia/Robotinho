@@ -1,173 +1,117 @@
 #!/usr/bin/env python2
-
-# Copyright (c) 2011, Willow Garage, Inc.
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-#    * Redistributions of source code must retain the above copyright
-#      notice, this list of conditions and the following disclaimer.
-#    * Redistributions in binary form must reproduce the above copyright
-#      notice, this list of conditions and the following disclaimer in the
-#      documentation and/or other materials provided with the distribution.
-#    * Neither the name of the Willow Garage, Inc. nor the names of its
-#      contributors may be used to endorse or promote products derived from
-#       this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
-
 import rospy
 from geometry_msgs.msg import Twist
-import sys, select, os
-if os.name == 'nt':
-  import msvcrt
-else:
-  import tty, termios
+from nav_msgs.msg import Odometry
+import math
+import time
+import numpy as np
+import sys
+import roslib
 
-topic = '/robot1/cmd_vel' if len(sys.argv)<=1 else sys.argv[1]
 
-LIN_VEL_STEP_SIZE = 0.010
-ANG_VEL_STEP_SIZE = 0.1
+topic = '/robot1/cmd_vel'
 
-msg = """
-Control Your %s
----------------------------
-Moving around:
-        w
-   a    s    d
-        x
 
-w/x : increase/decrease linear velocity 
-a/d : increase/decrease angular velocity 
 
-space key, s : force stop
+def brutal_planner(point,tf = 2.0):
+    Ax = [[0,0,0,1],[tf*tf*tf,tf*tf,tf,1],[0,0,1,0],[3*tf*tf,2*tf,1,0]]
+    px = [current_x,point.x,0,0]
+    coef_x = np.dot(np.linalg.pinv(Ax),px)
 
-CTRL-C to quit
-""" % topic
+    Ay = [[0,0,0,1],[tf*tf*tf,tf*tf,tf,1],[0,0,1,0],[3*tf*tf,2*tf,1,0]]
+    py = [current_y,point.y,0,0]
+    coef_y = np.dot(np.linalg.pinv(Ay),py)
 
-e = """
-Communications Failed
-"""
+    At = [[0,0,0,1],[tf*tf*tf,tf*tf,tf,1],[0,0,1,0],[3*tf*tf,2*tf,1,0]]
+    pt = [current_theta,0,0,0]
+    coef_t = np.dot(np.linalg.pinv(At),pt)
 
-def getKey():
-    if os.name == 'nt':
-      return msvcrt.getch()
+    t = 0
+    sampling_time = tf / 100
+    while t < tf:
+        vx = 3*coef_x[0]*t*t + 2*coef_x[1]*t + coef_x[2]
+        vy = 3*coef_y[0]*t*t + 2*coef_y[1]*t + coef_y[2]
+        
+        v = math.sqrt(vx*vx + vy*vy)
+        w = 3*coef_t[0]*t*t + 2*coef_t[1]*t + coef_t[2]
 
-    tty.setraw(sys.stdin.fileno())
-    rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
-    if rlist:
-        key = sys.stdin.read(1)
-    else:
-        key = ''
+        print(v,w)
+        sendCommand(v,w)
+        t += sampling_time
+        time.sleep(sampling_time)
 
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
-    return key
 
-def vels(target_linear_vel, target_angular_vel):
-    return "currently:\tlinear vel %s\t angular vel %s " % (target_linear_vel,target_angular_vel)
 
-def makeSimpleProfile(output, input, slop):
-    if input > output:
-        output = min( input, output + slop )
-    elif input < output:
-        output = max( input, output - slop )
-    else:
-        output = input
 
-    return output
+def reach(point,Kp = 0.1 ,Ki = 0.01 , Kd = 0.1,th = 0.01):
+    cumulative_e = 0
+    last_e = 0
+    eps = sys.float_info.epsilon
+    v = 1.0
 
-def constrain(input, low, high):
-    if input < low:
-      input = low
-    elif input > high:
-      input = high
-    else:
-      input = input
+    dx = point.x - current_x
+    dy = point.y - current_y
+    desid_z = math.atan2(dy,(dx + eps))
 
-    return input
+    print("POINT: ",point.x," ",point.y)
+    print("DZ: ",desid_z)
 
-def checkLinearLimitVelocity(vel):
-    return vel
+    while abs(dx) > th or abs(dy) > th:
+        print("DISTANCE ",dx," ",dy)
+        
+        alpha = desid_z  - current_theta * (3*45) * math.pi /180
+        e = math.atan2(math.sin(alpha),math.cos(alpha)+ eps)
 
-def checkAngularLimitVelocity(vel):
-    return vel
+        e_P = e
+        e_I = cumulative_e + e
+        e_D = e - last_e
+
+        w = Kp*e_P + Ki*e_I + Kd*e_D
+
+        w = math.atan2(math.sin(w),math.cos(w)+ eps)
+        v = math.sqrt(dx*dx+dy*dy)
+
+        if v > 2.0:
+            v = 2.0
+        elif v < -2.0:
+            v = -2.0
+        print("SPEED ",v," ",w)
+
+        cumulative_e += e
+        last_e = e
+
+        dx = point.x - current_x
+        dy = point.y - current_y
+        desid_z = math.atan2(dy,(dx + eps))
+
+        sendCommand(v,w)
+        time.sleep(1)
 
 if __name__=="__main__":
-    if os.name != 'nt':
-        settings = termios.tcgetattr(sys.stdin)
+    rospy.init_node('control_module')
 
-    rospy.init_node('teleop')
     pub = rospy.Publisher(topic, Twist, queue_size=10)
+    sub = rospy.Subscriber('/robot1/odom',Odometry,readFromSensor)
 
-    status = 0
-    target_linear_vel   = 0.0
-    target_angular_vel  = 0.0
-    control_linear_vel  = 0.0
-    control_angular_vel = 0.0
+    initComplete = False
 
+    while not initComplete:
+        pass
+    
+    stopRobot()
     try:
-        print msg
-        while(1):
-            key = getKey()
-            if key == 'w' :
-                target_linear_vel = checkLinearLimitVelocity(target_linear_vel + LIN_VEL_STEP_SIZE)
-                status = status + 1
-                print vels(target_linear_vel,target_angular_vel)
-            elif key == 'x' :
-                target_linear_vel = checkLinearLimitVelocity(target_linear_vel - LIN_VEL_STEP_SIZE)
-                status = status + 1
-                print vels(target_linear_vel,target_angular_vel)
-            elif key == 'a' :
-                target_angular_vel = checkAngularLimitVelocity(target_angular_vel + ANG_VEL_STEP_SIZE)
-                status = status + 1
-                print vels(target_linear_vel,target_angular_vel)
-            elif key == 'd' :
-                target_angular_vel = checkAngularLimitVelocity(target_angular_vel - ANG_VEL_STEP_SIZE)
-                status = status + 1
-                print vels(target_linear_vel,target_angular_vel)
-            elif key == ' ' or key == 's' :
-                target_linear_vel   = 0.0
-                control_linear_vel  = 0.0
-                target_angular_vel  = 0.0
-                control_angular_vel = 0.0
-                print vels(target_linear_vel, target_angular_vel)
-            else:
-                if (key == '\x03'):
-                    break
+        print "RuotoBene"
+        moveTo(0.0,0.0)
+        # forwardMove(0,0)
+        
+        #sendCommand(0,1)
+        # goAhead(1)
+        
 
-            if status == 20 :
-                print msg
-                status = 0
-
-            twist = Twist()
-
-            control_linear_vel = makeSimpleProfile(control_linear_vel, target_linear_vel, (LIN_VEL_STEP_SIZE/2.0))
-            twist.linear.x = control_linear_vel; twist.linear.y = 0.0; twist.linear.z = 0.0
-
-            control_angular_vel = makeSimpleProfile(control_angular_vel, target_angular_vel, (ANG_VEL_STEP_SIZE/2.0))
-            twist.angular.x = 0.0; twist.angular.y = 0.0; twist.angular.z = control_angular_vel
-
-            pub.publish(twist)
-
-    except:
+    except Exception as e:
         print e
 
     finally:
-        twist = Twist()
-        twist.linear.x = 0.0; twist.linear.y = 0.0; twist.linear.z = 0.0
-        twist.angular.x = 0.0; twist.angular.y = 0.0; twist.angular.z = 0.0
-        pub.publish(twist)
+        stopRobot()
 
-    if os.name != 'nt':
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    rospy.spin()

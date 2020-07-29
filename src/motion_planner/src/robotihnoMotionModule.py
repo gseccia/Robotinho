@@ -41,6 +41,8 @@ class RobotinhoController:
         self.odom = Odometry()
         self.rate = rospy.Rate(100000000)
 
+        self.init_complete = False
+
 
     def update_pose(self, data):
         """Callback function which is called when a new message of type Pose is
@@ -55,6 +57,7 @@ class RobotinhoController:
         
         self.pose.x = round(self.pose.x, 4)
         self.pose.y = round(self.pose.y, 4)
+        self.init_complete = True
 
     def euclidean_distance(self, goal_pose):
         """Euclidean distance between current pose and the goal."""
@@ -70,10 +73,11 @@ class RobotinhoController:
     def angular_vel(self, goal_pose, constant=6):
         steering_angle = self.steering_angle(goal_pose)
         w = constant * (steering_angle - self.pose.theta)
-        if (pi/2 - 0.1 < abs(steering_angle) < pi/2 + 0.1  or abs(steering_angle) < 0.1) and abs(w) > 0.1:
+        if (pi/2 - 0.1 < abs(steering_angle) < pi/2 + 0.1  or pi - 0.1 <= abs(steering_angle) <= pi + 0.1) and abs(w) > 0.1:
             return w,True
         return w,False
- 
+
+
     def move2goal(self,goal_pose):
         """Moves the turtle to the goal."""
         vel_msg = Twist()
@@ -102,9 +106,9 @@ class RobotinhoController:
             # Publishing our vel_msg
             self.velocity_publisher.publish(vel_msg)
 
-            print(self.pose)
-            print(vel_msg)
-            print(self.euclidean_distance(goal_pose))
+            # print(self.pose)
+            # print(vel_msg)
+            # print(self.euclidean_distance(goal_pose))
 
             # Publish at the desired rate.
             self.rate.sleep()
@@ -114,8 +118,8 @@ class RobotinhoController:
         vel_msg.angular.z = 0
         self.velocity_publisher.publish(vel_msg)
 
-        print(self.pose)
-        print(self.euclidean_distance(goal_pose))
+        # print(self.pose)
+        # print(self.euclidean_distance(goal_pose))
     
     def rotate(self,deg):
         vel_msg = Twist()
@@ -129,6 +133,12 @@ class RobotinhoController:
             wz = 1.5*(deg - self.pose.theta)
             self.rate.sleep()
         
+        vel_msg.linear.x = 0
+        vel_msg.angular.z = 0
+        self.velocity_publisher.publish(vel_msg)
+    
+    def stop(self):
+        vel_msg = Twist()
         vel_msg.linear.x = 0
         vel_msg.angular.z = 0
         self.velocity_publisher.publish(vel_msg)

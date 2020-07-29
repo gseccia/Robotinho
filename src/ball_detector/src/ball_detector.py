@@ -12,7 +12,7 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-
+import json
 
 
 from yolo import YOLO
@@ -23,12 +23,12 @@ class ball_detector:
 
   def __init__(self):
     self.image_pub = rospy.Publisher("/robot_detector_output",Image, queue_size = 1)
-
+    self.ball_position_pub = rospy.Publisher("/robot_ball_position",String, queue_size = 1)
     self.bridge = CvBridge()
 
-    self.yolo =  YOLO(model_path= '/home/mivia/robotinho_ws/src/ball_detector/src/weights.h5',
-        anchors_path= '/home/mivia/robotinho_ws/src/ball_detector/src/tiny_yolo_anchors.txt',
-        classes_path= '/home/mivia/robotinho_ws/src/ball_detector/src/soccer_ball_classes.txt',
+    self.yolo =  YOLO(model_path= '/home/mivia/Desktop/Robotinho/src/ball_detector/src/weights.h5',
+        anchors_path= '/home/mivia/Desktop/Robotinho/src/ball_detector/src/tiny_yolo_anchors.txt',
+        classes_path= '/home/mivia/Desktop/Robotinho/src/ball_detector/src/soccer_ball_classes.txt',
         score= 0.2,
         iou = 0.3,
         model_image_size = (320, 640),)
@@ -41,11 +41,13 @@ class ball_detector:
       data = rospy.wait_for_message("/robot1/camera1/image_raw",Image)
       cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
       pil_image= PilImage.fromarray(cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB))
-      print(pil_image)
+      # print(pil_image)
     except CvBridgeError as e:
       print(e)
     
-    print("cv_image: ", cv_image.shape)
+    # print("cv_image: ", cv_image.shape)
+    ball_position = {}
+    ball_position["detected"] = False
   
 
     #bbox, label, conf = detect_common_objects(cv2.blur(cv_image,(3,3)), confidence=0.25, model='yolov3-tiny')
@@ -62,19 +64,26 @@ class ball_detector:
     
     bbox, label, conf = self.yolo.detect_image(pil_image)
     label=list(label)
-    print(len(label))
+    # print(len(label))
+    msg = String()
     for obj in label:
       #if obj == "sports ball":
           index = label.index(obj)
-          print(bbox[index])
+          # print(bbox[index])
           y1 = max(0, np.floor(bbox[index][0] + 0.5).astype('int32'))
           x1 = max(0, np.floor(bbox[index][1] + 0.5).astype('int32'))
           y2 = min(cv_image.shape[0], np.floor(bbox[index][2] + 0.5).astype('int32'))
           x2 = min(cv_image.shape[1], np.floor(bbox[index][3]+ 0.5).astype('int32'))
           print(x1,y1,x2,y2)
           cv2.rectangle(cv_image, (x1,y1), (x2,y2), (0,255,0), 2)
-
-
+          ball_position["detected"] = True
+          ball_position["x1"] = str(x1)
+          ball_position["x2"] = str(x2)
+          ball_position["y1"] = str(y1)
+          ball_position["y2"] = str(y2)
+          
+    msg.data = json.dumps(ball_position)
+    self.ball_position_pub.publish(msg)
     ros_image = self.bridge.cv2_to_imgmsg(cv_image)
     self.image_pub.publish(ros_image)
     
