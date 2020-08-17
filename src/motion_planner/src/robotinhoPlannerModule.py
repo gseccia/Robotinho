@@ -4,7 +4,7 @@ from std_msgs.msg import String
 from gazebo_msgs.msg import ContactsState
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
-from robotihnoMotionModule import RobotinhoController, Pose
+from robotinhoMotionModule import RobotinhoController, Pose
 from math import pow,sqrt,pi,floor,atan2,cos,sin
 from cv_bridge import CvBridge, CvBridgeError
 import json
