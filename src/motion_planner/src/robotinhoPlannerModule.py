@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String,Float32MultiArray
 from gazebo_msgs.msg import ContactsState
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
@@ -11,25 +11,16 @@ import json
 import numpy as np
 import cv2
 
+LEFT = -1
+RIGHT = 1
+
 class RobotinhoPlanner:
     def __init__(self):
+        print("Planner Initialization...")
         self.port = [ ((6.1,-1.0),(6.1,1.0)) , ((-6.1,-1.0),(-6.1,1.0))]
-        
-        # 480,640
-        self.image_wh = [640,480]
-        self.movement_th = 30
-        self.vertical_cropping = np.asarray([0.0,2.0,1.0,1.0,1.0,2.0]) * self.image_wh[0] * (1.0/7)
-        self.horizontal_cropping = np.asarray([0.0,2.0,1.0]) * (self.image_wh[1] - self.movement_th) * (1.0/3)
 
-        self.vertical_cropping = map(int,self.vertical_cropping)
-        self.horizontal_cropping = map(int,self.horizontal_cropping)
-        
-
-        self.occupancy_grid = [[0 for i in range(len(self.vertical_cropping))] for j in range(len(self.horizontal_cropping))]
-
-        
+        self.occupancy_grid_subscriber = rospy.Subscriber("/occupancy_grid",Float32MultiArray,self.occupancyGridUpdate)
         self.ball_position_subscriber = rospy.Subscriber("/robot_ball_position",String,self.ballPositionUpdate)
-        self.obstacle_subscriber = rospy.Subscriber("/robot_obstacle_seg_output",Image,self.obstacleUpdate)
         self.bridge = CvBridge()
         self.controller = RobotinhoController()
         self.ball_position = None # (0.0,0.0) # Real init None
@@ -39,13 +30,13 @@ class RobotinhoPlanner:
         self.ball_last_position = None
         self.explored_cell = {}
 
-        
-        
+        self.occupancy_grid = None
 
         for i in range(-6,6):
             self.explored_cell[i] = {}
             for j in range(-3,3):
                 self.explored_cell[i][j] = False
+        print("DONE!")
 
     def printExploredMap(self):
         out = "----------MAP EXPLORED-------------\n"
@@ -60,22 +51,8 @@ class RobotinhoPlanner:
         while not self.controller.init_complete:
             pass
 
-    def obstacleUpdate(self,data):
-        try:
-            # data = rospy.wait_for_message("/robot_obstacle_seg_output",Image)
-            data.encoding = "mono8"
-            cv_image = self.bridge.imgmsg_to_cv2(data, "mono8")
-
-            for i in range(1,len(self.horizontal_cropping)):
-                for j in range(1,len(self.vertical_cropping)):
-                    crop = cv_image[ self.horizontal_cropping[i-1] : self.horizontal_cropping[i] , self.vertical_cropping[j-1] : self.vertical_cropping[j] ]
-                    self.occupancy_grid[i][j] = cv2.mean(crop)
-            
-            cv2.imshow("Test",cv_image)
-            cv2.waitKey(10)
-            print(self.occupancy_grid)
-        except CvBridgeError as e:
-            print(e)
+    def occupancyGridUpdate(self,data):
+        self.occupancy_grid = np.reshape(data.data,(3,5))
 
     def ballPositionUpdate(self,data):
         ball_dict = json.loads(data.data)
@@ -95,11 +72,15 @@ class RobotinhoPlanner:
             self.ball_center = None
             self.ball_attached = None
 
-    def genericLinePlanner(self,initialPosition,targetPosition):
+    def genericLinePlanner(self,initialPosition,targetPosition,limit_lenght_perc = None):
         curve_lenght = sqrt(pow((targetPosition.x - initialPosition.x),2) + pow((targetPosition.y - initialPosition.y),2))
+        if limit_lenght_perc is None:
+            limit_lenght = curve_lenght
+        else:
+            limit_lenght = limit_lenght_perc * curve_lenght
         p_s = []
         x = float(curve_lenght) / 100
-        while x < curve_lenght:
+        while x < limit_lenght:
             p_s.append(initialPosition + (targetPosition - initialPosition) * (x /curve_lenght))
             x += float(curve_lenght) / 100
         return p_s
@@ -172,32 +153,35 @@ class RobotinhoPlanner:
         print(vel_msg)
 
     def freeSpaceBehaviour(self):
-        # print("FREE SPACE BEHAVIOUR")
+        print("FREE SPACE BEHAVIOUR")
         # Reset Speed
         self.controller.stop()
 
         # Reach the ball
-        while self.ball_center is not None and not self.ball_attached: 
+        while self.ball_center is not None and not self.ball_attached and not self.obstaclePresence:
             self.reachTheBall()
         
         # STOP
         self.controller.stop()
+
+        if not self.obstaclePresence:
+
         
-        vel_msg = Twist()
-        if self.ball_attached:
-            # Adjust ball - robot angle
-            angular = self.mantainTarget()
-            while self.ball_center is not None and self.ball_attached and angular != 0:
-                print("ANGULAR: ",angular)
-                vel_msg.angular.z = 6.0 * angular
-                self.controller.velocity_publisher.publish(vel_msg)
-                self.controller.rate.sleep()
+            vel_msg = Twist()
+            if self.ball_attached:
+                # Adjust ball - robot angle
                 angular = self.mantainTarget()
-            
-            # STOP
-            self.controller.stop()
-            
-            self.ballToGoal()
+                while self.ball_center is not None and self.ball_attached and angular != 0:
+                    print("ANGULAR: ",angular)
+                    vel_msg.angular.z = 6.0 * angular
+                    self.controller.velocity_publisher.publish(vel_msg)
+                    self.controller.rate.sleep()
+                    angular = self.mantainTarget()
+                
+                # STOP
+                self.controller.stop()
+                
+                self.ballToGoal()
 
 
     def ballToGoal(self):
@@ -247,17 +231,68 @@ class RobotinhoPlanner:
             # GOAL!!!!!
             self.is_goal = True
             print("GOAL!")
-        
+    
+    def freeCell(self,value,th = 0.5):
+        return value < th
+    
+    def freeDirection(self, row):
+        return np.dot(self.occupancy_grid[row],[-1,-1,0,1,1])
+
     def obstacleAviodanceBehaviour(self):
         print("OBSTACLE AVOIDANCE BEHAVIOUR")
+        if self.occupancy_grid is not None:
+            offset_angle = 0
+
+            for i in range(3):
+                for j in range(5):
+                    region = chr(ord("A")+i) + str(j+1)
+
+                    print("{0} : {1:.3f}".format(region,self.occupancy_grid[i][j]))
+
+            # Evaluate Grid 
+            if not self.freeCell(self.occupancy_grid[0][3],th = 0.3):
+                offset_angle =  (0.1*self.freeDirection(0) + 0.5*self.freeDirection(1) / 0.6) * pi/2
+
+                current_x = floor(self.controller.pose.x)
+                current_y = floor(self.controller.pose.y)
+                meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
+
+                middlePoint_x = (current_x + meanPortPose.x) / 2
+                middlePoint_y = (current_y + meanPortPose.y) / 2
+
+                distance = sqrt( pow(middlePoint_x - current_x,2) +  pow(middlePoint_y - current_y,2))
+                x = middlePoint_x + distance*tan(offset_angle)*sin(offset_angle)
+                y = middlePoint_y + distance*tan(offset_angle)*cos(offset_angle)
+                obstacleAvoidancePoint = Pose(x,y)
+
+                print(obstacleAvoidancePoint)
+
+                # Add Kick pose!
+                # !!!!!!!!!!!!!
+
+                points = self.genericLinePlanner(self.controller.pose,obstacleAvoidancePoint,0.5)
+                for point in points:
+                    self.controller.move2goal(point)
+
+            # Pure Rotation
+            elif not self.freeCell(self.occupancy_grid[2][3],th = 0.3):
+                offset_angle = pi/2 if self.freeDirection(2) < 0 else pi/2
+
+                # Add Kick pose!
+                # !!!!!!!!!!!!!!
+
+                self.controller.rotate(offset_angle)
+            
 
     def planningOnTheFly(self):
+        print("RUN")
+        # Add a better State Management
         while not rospy.is_shutdown() and not self.is_goal:
-            if self.ball_center is None:
+            print("Evaluation")
+            self.obstacleAviodanceBehaviour()
+            if False: #self.ball_center is None:
                 self.searchBallBehaviour()
-            elif self.free_Spece:
-                self.obstacleAviodanceBehaviour()
-            else: 
+            else:
                 self.freeSpaceBehaviour()
         rospy.spin()
 

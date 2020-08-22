@@ -8,6 +8,7 @@ import cv2
 
 import numpy as np
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float32MultiArray,MultiArrayDimension
 from cv_bridge import CvBridge, CvBridgeError
 
 
@@ -17,8 +18,10 @@ class obstacle_segmenter():
 
 
     def __init__(self):
+        print("Sgmenter Initialization...",end="")
         self.image_pub = rospy.Publisher("/robot_obstacle_seg_output",Image, queue_size = 1)
-
+        self.occupancy_grid_pub = rospy.Publisher("/occupancy_grid",Float32MultiArray, queue_size = 1)
+        
         self.image_wh = [640,360]
         self.movement_th = 30
         self.vertical_cropping = np.asarray([0.0,2.0,1.0,1.0,1.0,2.0]) * self.image_wh[0] * (1.0/7)
@@ -40,10 +43,17 @@ class obstacle_segmenter():
         self.y3 = self.image_wh[1]                              #  y3----------------------------------------
 
 
-        self.occupancy_grid = [[0 for i in range(len(self.vertical_cropping))] for j in range(len(self.horizontal_cropping))]
+        self.occupancy_grid = [[0 for i in range(len(self.vertical_cropping) - 1)] for j in range(len(self.horizontal_cropping))]
+        self.image = None
 
+        self.regions = []
+
+        for i in ["A","B","C"]:
+          for j in range(1,6):
+            self.regions.append(i+str(j))
 
         self.bridge = CvBridge()
+        print("Done!")
         
     def get_grid_region(self, region):
  
@@ -84,8 +94,7 @@ class obstacle_segmenter():
         mean_values = cv2.mean(crop)
         return mean_values[0]/255
 
-
-    def get_obstacle_mask(self):
+    def get_obstacle_mask(self,verbose = False):
         try:
           data = rospy.wait_for_message("/robot1/camera1/image_raw",Image)
 
@@ -111,123 +120,39 @@ class obstacle_segmenter():
         mask_grid = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         
         # compute the fill of crop regions
-        coords_A1 = self.get_grid_region("A1")
-        fill_ratio_A1 = self.compute_fill_ratio(mask_grid, coords_A1)
-        
-        coords_A2 = self.get_grid_region("A2")
-        fill_ratio_A2 = self.compute_fill_ratio(mask_grid, coords_A2)
-        
-        coords_A3 = self.get_grid_region("A3")
-        fill_ratio_A3 = self.compute_fill_ratio(mask_grid, coords_A3)
-        
-        coords_A4 = self.get_grid_region("A4")
-        fill_ratio_A4 = self.compute_fill_ratio(mask_grid, coords_A4)
-        
-        coords_A5 = self.get_grid_region("A5")
-        fill_ratio_A5 = self.compute_fill_ratio(mask_grid, coords_A5)
-        
-        coords_B1 = self.get_grid_region("B1")
-        fill_ratio_B1 = self.compute_fill_ratio(mask_grid, coords_B1)
-        
-        coords_B2 = self.get_grid_region("B2")
-        fill_ratio_B2 = self.compute_fill_ratio(mask_grid, coords_B2)
-        
-        coords_B3 = self.get_grid_region("B3")
-        fill_ratio_B3 = self.compute_fill_ratio(mask_grid, coords_B3)
-        
-        coords_B4 = self.get_grid_region("B4")
-        fill_ratio_B4 = self.compute_fill_ratio(mask_grid, coords_B4)
-        
-        coords_B5 = self.get_grid_region("B5")
-        fill_ratio_B5 = self.compute_fill_ratio(mask_grid, coords_B5)
-        
-        coords_C1 = self.get_grid_region("C1")
-        fill_ratio_C1 = self.compute_fill_ratio(mask_grid, coords_C1)
-        
-        coords_C2 = self.get_grid_region("C2")
-        fill_ratio_C2 = self.compute_fill_ratio(mask_grid, coords_C2)
-        
-        coords_C3 = self.get_grid_region("C3")
-        fill_ratio_C3 = self.compute_fill_ratio(mask_grid, coords_C3)
-        
-        coords_C4 = self.get_grid_region("C4")
-        fill_ratio_C4 = self.compute_fill_ratio(mask_grid, coords_C4)
-        
-        coords_C5 = self.get_grid_region("C5")
-        fill_ratio_C5 = self.compute_fill_ratio(mask_grid, coords_C5)
-        
-        print(fill_ratio_A1)
-        print(fill_ratio_C1)
-        
-        # plot grid on the mask
-        cv2.rectangle(mask_grid, coords_A1[0], coords_A1[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_A2[0], coords_A2[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_A3[0], coords_A3[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_A4[0], coords_A4[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_A5[0], coords_A5[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_B1[0], coords_B1[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_B2[0], coords_B2[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_B3[0], coords_B3[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_B4[0], coords_B4[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_B5[0], coords_B5[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_C1[0], coords_C1[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_C2[0], coords_C2[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_C3[0], coords_C3[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_C4[0], coords_C4[1], (255,0,0), 2)
-        cv2.rectangle(mask_grid, coords_C5[0], coords_C5[1], (255,0,0), 2)
-        
-        # plot level warning (increasing with red intensity) on the mask
-        mask_grid[coords_A1[0][1]:coords_A1[1][1], coords_A1[0][0]:coords_A1[1][0], :] = mask_grid[coords_A1[0][1]:coords_A1[1][1], coords_A1[0][0]:coords_A1[1][0], :]/2
-        mask_grid[coords_A1[0][1]:coords_A1[1][1], coords_A1[0][0]:coords_A1[1][0], 2] = mask_grid[coords_A1[0][1]:coords_A1[1][1], coords_A1[0][0]:coords_A1[1][0], 2] + int(fill_ratio_A1*(255/2))
-        
-        mask_grid[coords_A2[0][1]:coords_A2[1][1], coords_A2[0][0]:coords_A2[1][0], :] = mask_grid[coords_A2[0][1]:coords_A2[1][1], coords_A2[0][0]:coords_A2[1][0], :]/2
-        mask_grid[coords_A2[0][1]:coords_A2[1][1], coords_A2[0][0]:coords_A2[1][0], 2] = mask_grid[coords_A2[0][1]:coords_A2[1][1], coords_A2[0][0]:coords_A2[1][0], 2] + int(fill_ratio_A2*(255/2))
+        for region in self.regions:
+            coords = self.get_grid_region(region)
+            fill_ratio = self.compute_fill_ratio(mask_grid, coords)
+            self.occupancy_grid[int(ord(region[0]) - ord("A"))][int(region[1]) - 1] =  fill_ratio
 
-        mask_grid[coords_A3[0][1]:coords_A3[1][1], coords_A3[0][0]:coords_A3[1][0], :] = mask_grid[coords_A3[0][1]:coords_A3[1][1], coords_A3[0][0]:coords_A3[1][0], :]/2
-        mask_grid[coords_A3[0][1]:coords_A3[1][1], coords_A3[0][0]:coords_A3[1][0], 2] = mask_grid[coords_A3[0][1]:coords_A3[1][1], coords_A3[0][0]:coords_A3[1][0], 2] + int(fill_ratio_A3*(255/2))        
-        
-        mask_grid[coords_A4[0][1]:coords_A4[1][1], coords_A4[0][0]:coords_A4[1][0], :] = mask_grid[coords_A4[0][1]:coords_A4[1][1], coords_A4[0][0]:coords_A4[1][0], :]/2
-        mask_grid[coords_A4[0][1]:coords_A4[1][1], coords_A4[0][0]:coords_A4[1][0], 2] = mask_grid[coords_A4[0][1]:coords_A4[1][1], coords_A4[0][0]:coords_A4[1][0], 2] + int(fill_ratio_A4*(255/2))
-
-        mask_grid[coords_A5[0][1]:coords_A5[1][1], coords_A5[0][0]:coords_A5[1][0], :] = mask_grid[coords_A5[0][1]:coords_A5[1][1], coords_A5[0][0]:coords_A5[1][0], :]/2
-        mask_grid[coords_A5[0][1]:coords_A5[1][1], coords_A5[0][0]:coords_A5[1][0], 2] = mask_grid[coords_A5[0][1]:coords_A5[1][1], coords_A5[0][0]:coords_A5[1][0], 2] + int(fill_ratio_A5*(255/2))
-
-        mask_grid[coords_B1[0][1]:coords_B1[1][1], coords_B1[0][0]:coords_B1[1][0], :] = mask_grid[coords_B1[0][1]:coords_B1[1][1], coords_B1[0][0]:coords_B1[1][0], :]/2
-        mask_grid[coords_B1[0][1]:coords_B1[1][1], coords_B1[0][0]:coords_B1[1][0], 2] = mask_grid[coords_B1[0][1]:coords_B1[1][1], coords_B1[0][0]:coords_B1[1][0], 2] + int(fill_ratio_B1*(255/2))        
-        
-        mask_grid[coords_B2[0][1]:coords_B2[1][1], coords_B2[0][0]:coords_B2[1][0], :] = mask_grid[coords_B2[0][1]:coords_B2[1][1], coords_B2[0][0]:coords_B2[1][0], :]/2
-        mask_grid[coords_B2[0][1]:coords_B2[1][1], coords_B2[0][0]:coords_B2[1][0], 2] = mask_grid[coords_B2[0][1]:coords_B2[1][1], coords_B2[0][0]:coords_B2[1][0], 2] + int(fill_ratio_B2*(255/2)) 
-        
-        mask_grid[coords_B3[0][1]:coords_B3[1][1], coords_B3[0][0]:coords_B3[1][0], :] = mask_grid[coords_B3[0][1]:coords_B3[1][1], coords_B3[0][0]:coords_B3[1][0], :]/2
-        mask_grid[coords_B3[0][1]:coords_B3[1][1], coords_B3[0][0]:coords_B3[1][0], 2] = mask_grid[coords_B3[0][1]:coords_B3[1][1], coords_B3[0][0]:coords_B3[1][0], 2] + int(fill_ratio_B3*(255/2)) 
-        
-        mask_grid[coords_B4[0][1]:coords_B4[1][1], coords_B4[0][0]:coords_B4[1][0], :] = mask_grid[coords_B4[0][1]:coords_B4[1][1], coords_B4[0][0]:coords_B4[1][0], :]/2
-        mask_grid[coords_B4[0][1]:coords_B4[1][1], coords_B4[0][0]:coords_B4[1][0], 2] = mask_grid[coords_B4[0][1]:coords_B4[1][1], coords_B4[0][0]:coords_B4[1][0], 2] + int(fill_ratio_B4*(255/2))        
-        
-        mask_grid[coords_B5[0][1]:coords_B5[1][1], coords_B5[0][0]:coords_B5[1][0], :] = mask_grid[coords_B5[0][1]:coords_B5[1][1], coords_B5[0][0]:coords_B5[1][0], :]/2
-        mask_grid[coords_B5[0][1]:coords_B5[1][1], coords_B5[0][0]:coords_B5[1][0], 2] = mask_grid[coords_B5[0][1]:coords_B5[1][1], coords_B5[0][0]:coords_B5[1][0], 2] + int(fill_ratio_B5*(255/2)) 
-        
-        mask_grid[coords_C1[0][1]:coords_C1[1][1], coords_C1[0][0]:coords_C1[1][0], :] = mask_grid[coords_C1[0][1]:coords_C1[1][1], coords_C1[0][0]:coords_C1[1][0], :]/2
-        mask_grid[coords_C1[0][1]:coords_C1[1][1], coords_C1[0][0]:coords_C1[1][0], 2] = mask_grid[coords_C1[0][1]:coords_C1[1][1], coords_C1[0][0]:coords_C1[1][0], 2] + int(fill_ratio_C1*(255/2)) 
+            # plot grid on the mask
+            if verbose:
+              cv2.rectangle(mask_grid, coords[0], coords[1], (255,0,0), 2)
               
-        mask_grid[coords_C2[0][1]:coords_C2[1][1], coords_C2[0][0]:coords_C2[1][0], :] = mask_grid[coords_C2[0][1]:coords_C2[1][1], coords_C2[0][0]:coords_C2[1][0], :]/2
-        mask_grid[coords_C2[0][1]:coords_C2[1][1], coords_C2[0][0]:coords_C2[1][0], 2] = mask_grid[coords_C2[0][1]:coords_C2[1][1], coords_C2[0][0]:coords_C2[1][0], 2] + int(fill_ratio_C2*(255/2))        
-      
-        mask_grid[coords_C3[0][1]:coords_C3[1][1], coords_C3[0][0]:coords_C3[1][0], :] = mask_grid[coords_C3[0][1]:coords_C3[1][1], coords_C3[0][0]:coords_C3[1][0], :]/2
-        mask_grid[coords_C3[0][1]:coords_C3[1][1], coords_C3[0][0]:coords_C3[1][0], 2] = mask_grid[coords_C3[0][1]:coords_C3[1][1], coords_C3[0][0]:coords_C3[1][0], 2] + int(fill_ratio_C3*(255/2)) 
-        
-        mask_grid[coords_C4[0][1]:coords_C4[1][1], coords_C4[0][0]:coords_C4[1][0], :] = mask_grid[coords_C4[0][1]:coords_C4[1][1], coords_C4[0][0]:coords_C4[1][0], :]/2
-        mask_grid[coords_C4[0][1]:coords_C4[1][1], coords_C4[0][0]:coords_C4[1][0], 2] = mask_grid[coords_C4[0][1]:coords_C4[1][1], coords_C4[0][0]:coords_C4[1][0], 2] + int(fill_ratio_C4*(255/2)) 
-        
-        mask_grid[coords_C5[0][1]:coords_C5[1][1], coords_C5[0][0]:coords_C5[1][0], :] = mask_grid[coords_C5[0][1]:coords_C5[1][1], coords_C5[0][0]:coords_C5[1][0], :]/2
-        mask_grid[coords_C5[0][1]:coords_C5[1][1], coords_C5[0][0]:coords_C5[1][0], 2] = mask_grid[coords_C5[0][1]:coords_C5[1][1], coords_C5[0][0]:coords_C5[1][0], 2] + int(fill_ratio_C5*(255/2)) 
-        
-                          
-                        
-        
-        #print(mask)
-        
+              # plot level warning (increasing with red intensity) on the mask
+              mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :] = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :]/2
+              mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], 2] = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], 2] + int(fill_ratio*(255/2))
 
+        #print(mask)
+        msg = Float32MultiArray()
+
+        # This is almost always zero there is no empty padding at the start of your data
+        msg.layout.data_offset = 0 
+
+        # create two dimensions in the dim array
+        msg.layout.dim = [MultiArrayDimension(), MultiArrayDimension()]
+        # dim[0] is the vertical dimension of your matrix
+        msg.layout.dim[0].label = "channels"
+        msg.layout.dim[0].size = 3
+        msg.layout.dim[0].stride = 15
+        # dim[1] is the horizontal dimension of your matrix
+        msg.layout.dim[1].label = "samples"
+        msg.layout.dim[1].size = 5
+        msg.layout.dim[1].stride = 5
+
+        msg.data = np.reshape(self.occupancy_grid,15)
+
+        self.occupancy_grid_pub.publish(msg)
 
         ros_image = self.bridge.cv2_to_imgmsg(mask_grid)
         self.image_pub.publish(ros_image)
