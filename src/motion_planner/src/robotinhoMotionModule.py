@@ -79,7 +79,7 @@ class RobotinhoController:
 
 
     def move2goal(self,goal_pose):
-        """Moves the turtle to the goal."""
+        """Moves the robot to the goal."""
         vel_msg = Twist()
         vel_msg.linear.x = 0
         vel_msg.angular.z = 0

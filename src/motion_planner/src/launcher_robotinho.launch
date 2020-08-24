@@ -1,0 +1,7 @@
+<launch>
+  <node name="ball_detector" pkg="ball_detector" type="ball_detector.py" output="screen" />
+  <node name="robotinhoPlannerModule" pkg="motion_planner" type="robotinhoPlannerModule.py" output="screen" />
+  <node name="occupancy_grid" pkg="occupancy_grid" type="occupancy_grid_module.py" output="screen" />
+  
+  
+</launch>

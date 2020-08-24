@@ -31,6 +31,7 @@ class RobotinhoPlanner:
         self.explored_cell = {}
 
         self.occupancy_grid = None
+        self.obstaclePresence = False
 
         for i in range(-6,6):
             self.explored_cell[i] = {}
