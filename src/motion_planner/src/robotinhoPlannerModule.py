@@ -1,15 +1,17 @@
 #!/usr/bin/env python2
+from __future__ import print_function
 import rospy
 from std_msgs.msg import String,Float32MultiArray
 from gazebo_msgs.msg import ContactsState
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from robotinhoMotionModule import RobotinhoController, Pose
-from math import pow,sqrt,pi,floor,atan2,cos,sin
+from math import pow,sqrt,pi,floor,atan2,cos,sin,tan
 from cv_bridge import CvBridge, CvBridgeError
 import json
 import numpy as np
 import cv2
+
 
 LEFT = -1
 RIGHT = 1
@@ -54,6 +56,8 @@ class RobotinhoPlanner:
 
     def occupancyGridUpdate(self,data):
         self.occupancy_grid = np.reshape(data.data,(3,5))
+        
+        self.obstaclePresence =  self.occupancy_grid[2][0] > 0 or self.occupancy_grid[2][1] > 0 or self.occupancy_grid[2][2] > 0
 
     def ballPositionUpdate(self,data):
         ball_dict = json.loads(data.data)
@@ -253,6 +257,8 @@ class RobotinhoPlanner:
             # Evaluate Grid 
             if not self.freeCell(self.occupancy_grid[0][3],th = 0.3):
                 offset_angle =  (0.1*self.freeDirection(0) + 0.5*self.freeDirection(1) / 0.6) * pi/2
+                
+                print("OFFSET ANGLE: ",offset_angle)
 
                 current_x = floor(self.controller.pose.x)
                 current_y = floor(self.controller.pose.y)
@@ -266,14 +272,13 @@ class RobotinhoPlanner:
                 y = middlePoint_y + distance*tan(offset_angle)*cos(offset_angle)
                 obstacleAvoidancePoint = Pose(x,y)
 
-                print(obstacleAvoidancePoint)
+                print("AVOID POINT:",obstacleAvoidancePoint)
 
                 # Add Kick pose!
                 # !!!!!!!!!!!!!
 
-                points = self.genericLinePlanner(self.controller.pose,obstacleAvoidancePoint,0.5)
-                for point in points:
-                    self.controller.move2goal(point)
+                points = self.genericLinePlanner(self.controller.pose,obstacleAvoidancePoint)
+                return points
 
             # Pure Rotation
             elif not self.freeCell(self.occupancy_grid[2][3],th = 0.3):
@@ -283,18 +288,46 @@ class RobotinhoPlanner:
                 # !!!!!!!!!!!!!!
 
                 self.controller.rotate(offset_angle)
+                return None
+        return None
             
 
     def planningOnTheFly(self):
         print("RUN")
         # Add a better State Management
+        meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
         while not rospy.is_shutdown() and not self.is_goal:
-            print("Evaluation")
-            self.obstacleAviodanceBehaviour()
+            
+            points = self.obstacleAviodanceBehaviour()
+            if points is None:
+                finalPoints = self.genericLinePlanner(self.controller.pose,meanPortPose)
+                self.obstaclePresence = False
+                print("Vado in Porta: ")
+                i = 0
+                while i < len(finalPoints) and not self.obstaclePresence:
+                    self.controller.move2goal(finalPoints[i])
+                    self.obstaclePresence = not self.freeCell(self.occupancy_grid[1][3],0.2)
+                    print(finalPoints[i])
+                    i += 1
+            else:
+                finalPoints = points
+                self.obstaclePresence = True
+                print("Evito ostacolo: ")
+                i = 0
+                while i < len(finalPoints) and self.obstaclePresence:
+                    self.controller.move2goal(finalPoints[i])
+                    self.obstaclePresence = not self.freeCell(self.occupancy_grid[1][3],0.2)
+                    print(finalPoints[i])
+                    i += 1
+            
+            self.controller.stop()
+            
             if False: #self.ball_center is None:
                 self.searchBallBehaviour()
-            else:
+            elif False:
                 self.freeSpaceBehaviour()
+            else:
+                pass
         rospy.spin()
 
         
