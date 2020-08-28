@@ -11,10 +11,13 @@ from cv_bridge import CvBridge, CvBridgeError
 import json
 import numpy as np
 import cv2
+from robotinhoMapRepresentation import Map,Tile
 
 
 LEFT = -1
 RIGHT = 1
+
+
 
 class RobotinhoPlanner:
     def __init__(self):
@@ -32,8 +35,11 @@ class RobotinhoPlanner:
         self.ball_last_position = None
         self.explored_cell = {}
 
+        self.map = Map()
+
         self.occupancy_grid = None
         self.obstaclePresence = False
+
 
         for i in range(-6,6):
             self.explored_cell[i] = {}
@@ -56,8 +62,42 @@ class RobotinhoPlanner:
 
     def occupancyGridUpdate(self,data):
         self.occupancy_grid = np.reshape(data.data,(3,5))
+        Boccupancy = 0.95
         
-        self.obstaclePresence =  self.occupancy_grid[2][0] > 0 or self.occupancy_grid[2][1] > 0 or self.occupancy_grid[2][2] > 0
+        left = self.occupancy_grid[1][0] > Boccupancy or self.occupancy_grid[2][0] > 0
+        left = left or self.occupancy_grid[1][1] > Boccupancy or self.occupancy_grid[2][1] > 0
+        center = self.occupancy_grid[1][1] > Boccupancy  or self.occupancy_grid[2][1] > 0 
+
+        center = center or self.occupancy_grid[1][2] > Boccupancy or self.occupancy_grid[2][2] > 0 
+        center = center or self.occupancy_grid[1][3] > Boccupancy or self.occupancy_grid[2][3] > 0 
+
+        right = self.occupancy_grid[1][3] > Boccupancy or self.occupancy_grid[2][3] > 0 
+        right = right or self.occupancy_grid[1][4] > Boccupancy or self.occupancy_grid[2][4] > 0 
+        
+        # Estimation obstacle position:
+        x = self.controller.pose.x + 0.1*cos(self.controller.pose.theta)
+        y = self.controller.pose.y + 0.1*sin(self.controller.pose.theta)
+
+        leftx = self.controller.pose.x + 0.15*cos(self.controller.pose.theta + pi / 4)
+        lefty = self.controller.pose.y + 0.15*sin(self.controller.pose.theta + pi / 4)
+
+        rightx = self.controller.pose.x + 0.15*cos(self.controller.pose.theta - pi / 4)
+        righty = self.controller.pose.y + 0.15*sin(self.controller.pose.theta - pi / 4)
+        
+
+        if left:
+            self.map.setTileBusy(leftx,lefty)
+        if right:
+            self.map.setTileBusy(rightx,righty)
+        if center:
+            self.map.setTileBusy(x,y)
+        
+        """print("POSITION ESTIMATION: "+str(self.controller.pose.x)+","+str(self.controller.pose.y))
+        print("CENTER OBSTACLE ESTIMATION: "+str(x)+","+str(y))
+        print("LEFT   OBSTACLE ESTIMATION: "+str(leftx)+","+str(lefty))
+        print("RIGHT  OBSTACLE ESTIMATION: "+str(rightx)+","+str(righty))
+        
+        print(str(self.map))"""
 
     def ballPositionUpdate(self,data):
         ball_dict = json.loads(data.data)
@@ -243,6 +283,25 @@ class RobotinhoPlanner:
     def freeDirection(self, row):
         return np.dot(self.occupancy_grid[row],[-1,-1,0,1,1])
 
+    def obstacleAvoidance(self):
+        print("OBSTACLE AVOIDANCE BEHAVIOUR")
+        if self.occupancy_grid is not None:
+            for i in range(3):
+                for j in range(5):
+                    region = chr(ord("A")+i) + str(j+1)
+
+                    print("{0} : {1:.3f}".format(region,self.occupancy_grid[i][j]))
+            
+            if not self.freeCell(self.occupancy_grid[2][3],th = 0.1) or not self.freeCell(self.occupancy_grid[2][2],th = 0.1) or not self.freeCell(self.occupancy_grid[2][4],th = 0.1):
+                if self.occupancy_grid[2][3] > self.occupancy_grid[2][4]:
+                    self.controller.rotate(self.controller.pose.theta - pi/2)
+                    self.controller.pose.x + 0.3*cos()
+                    self.controller.pose.x + 0.3*sin()
+
+                    self.controller.move2goal(x )
+                else:
+                    self.controller.rotate(pi/2)
+                    
     def obstacleAviodanceBehaviour(self):
         print("OBSTACLE AVOIDANCE BEHAVIOUR")
         if self.occupancy_grid is not None:
@@ -254,12 +313,26 @@ class RobotinhoPlanner:
 
                     print("{0} : {1:.3f}".format(region,self.occupancy_grid[i][j]))
 
-            # Evaluate Grid 
-            if not self.freeCell(self.occupancy_grid[0][3],th = 0.3):
-                offset_angle =  (0.1*self.freeDirection(0) + 0.5*self.freeDirection(1) / 0.6) * pi/2
-                
-                print("OFFSET ANGLE: ",offset_angle)
+            # Evaluate Grid
+            offset_angle =  (0.2*self.freeDirection(0) + 0.7*self.freeDirection(1) / 0.9) * (pi/4)
+            print("OFFSET ANGLE: ",offset_angle * 180 / pi)
 
+            # Pure Rotation
+            if abs(tan(offset_angle)) > 6 or not self.freeCell(self.occupancy_grid[2][3],th = 0.3):
+                print("Pure rotation")
+                offset_angle = -pi/2 if self.freeDirection(2) < 0 else pi/2
+
+                # Add Kick pose!
+                # !!!!!!!!!!!!!!
+
+                self.controller.rotate(offset_angle)
+                x = floor(self.controller.pose.x) + 0.5*sin(self.controller.pose.theta)
+                y = floor(self.controller.pose.y) + 0.5*cos(self.controller.pose.theta)
+
+                self.controller.move2goal(Pose(x,y))
+                return None,0
+
+            elif not self.freeCell(self.occupancy_grid[1][3],th = 0.2):
                 current_x = floor(self.controller.pose.x)
                 current_y = floor(self.controller.pose.y)
                 meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
@@ -278,27 +351,28 @@ class RobotinhoPlanner:
                 # !!!!!!!!!!!!!
 
                 points = self.genericLinePlanner(self.controller.pose,obstacleAvoidancePoint)
-                return points
+                return points,offset_angle
 
-            # Pure Rotation
-            elif not self.freeCell(self.occupancy_grid[2][3],th = 0.3):
-                offset_angle = pi/2 if self.freeDirection(2) < 0 else pi/2
-
-                # Add Kick pose!
-                # !!!!!!!!!!!!!!
-
-                self.controller.rotate(offset_angle)
-                return None
-        return None
             
+        return None,0
+    
+    def navigation(self,targetPose):
+        path = self.map.getBestTilePath(self.controller.pose,targetPose)
+        print("PATH: ",path)
+        i = 0
+        while i < len(path) and not self.map.isModified():
+            print("Position: ",path[i][0]," , ",path[i][1])
+            self.controller.move2goal(Pose(path[i][0],path[i][1]))
+            i += 1
 
     def planningOnTheFly(self):
         print("RUN")
         # Add a better State Management
         meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
         while not rospy.is_shutdown() and not self.is_goal:
+            self.navigation(meanPortPose)
+            """points,current_angle = self.obstacleAviodanceBehaviour()
             
-            points = self.obstacleAviodanceBehaviour()
             if points is None:
                 finalPoints = self.genericLinePlanner(self.controller.pose,meanPortPose)
                 self.obstaclePresence = False
@@ -314,11 +388,18 @@ class RobotinhoPlanner:
                 self.obstaclePresence = True
                 print("Evito ostacolo: ")
                 i = 0
-                while i < len(finalPoints) and self.obstaclePresence:
+                offset_angle = current_angle
+                # abs(offset_angle - current_angle) < 5.0 * pi / 180.0)
+                while i < len(finalPoints) and abs(offset_angle) < abs(current_angle) + 10.0 * pi / 180.0 :
                     self.controller.move2goal(finalPoints[i])
                     self.obstaclePresence = not self.freeCell(self.occupancy_grid[1][3],0.2)
+                    offset_angle =  (0.2*self.freeDirection(0) + 0.7*self.freeDirection(1) / 0.9) * (pi/4)
+
                     print(finalPoints[i])
-                    i += 1
+                    print("I: ",i," LEN: ",len(finalPoints)," OBSTACLE PRESENCE: ",self.obstaclePresence)
+                    print("CURRENT ANGLE: ",current_angle * 180 / pi," OFFEET ANGLE:  ",offset_angle * 180 / pi)
+                    i += 1"""
+                    
             
             self.controller.stop()
             
