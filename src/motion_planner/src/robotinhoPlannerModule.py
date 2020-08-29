@@ -62,42 +62,62 @@ class RobotinhoPlanner:
 
     def occupancyGridUpdate(self,data):
         self.occupancy_grid = np.reshape(data.data,(3,5))
-        Boccupancy = 0.95
+        Coccupancy = 0.2
         
-        left = self.occupancy_grid[1][0] > Boccupancy or self.occupancy_grid[2][0] > 0
-        left = left or self.occupancy_grid[1][1] > Boccupancy or self.occupancy_grid[2][1] > 0
-        center = self.occupancy_grid[1][1] > Boccupancy  or self.occupancy_grid[2][1] > 0 
+        left = self.occupancy_grid[2][0] > Coccupancy
+        left = left or self.occupancy_grid[2][1] > Coccupancy
+        
+        center = self.occupancy_grid[2][2] > 0.0
+        # center = center or self.occupancy_grid[2][1] > Coccupancy
+        # center = center or self.occupancy_grid[2][3] > Coccupancy
 
-        center = center or self.occupancy_grid[1][2] > Boccupancy or self.occupancy_grid[2][2] > 0 
-        center = center or self.occupancy_grid[1][3] > Boccupancy or self.occupancy_grid[2][3] > 0 
-
-        right = self.occupancy_grid[1][3] > Boccupancy or self.occupancy_grid[2][3] > 0 
-        right = right or self.occupancy_grid[1][4] > Boccupancy or self.occupancy_grid[2][4] > 0 
+        right = self.occupancy_grid[2][3] > Coccupancy
+        right = right or self.occupancy_grid[2][4] > Coccupancy
         
         # Estimation obstacle position:
-        x = self.controller.pose.x + 0.1*cos(self.controller.pose.theta)
-        y = self.controller.pose.y + 0.1*sin(self.controller.pose.theta)
-
-        leftx = self.controller.pose.x + 0.15*cos(self.controller.pose.theta + pi / 4)
-        lefty = self.controller.pose.y + 0.15*sin(self.controller.pose.theta + pi / 4)
-
-        rightx = self.controller.pose.x + 0.15*cos(self.controller.pose.theta - pi / 4)
-        righty = self.controller.pose.y + 0.15*sin(self.controller.pose.theta - pi / 4)
+        tileX,tileY = self.map.getTileCoords(self.controller.pose.x,self.controller.pose.y)
         
-
-        if left:
-            self.map.setTileBusy(leftx,lefty)
-        if right:
-            self.map.setTileBusy(rightx,righty)
+        if - pi / 8 <= self.controller.pose.theta <= pi / 8:
+            # ok
+            busyX = [1 ,1 ,1 ] # [1 ,1 ,1 ,1 ,1]
+            busyY = [-1 ,0 ,1] # [-2 ,-1 ,0 ,1 ,2]
+        elif pi / 8 <= self.controller.pose.theta <= 3*pi / 8:
+            busyX = [2 ,1 ,0] #[3  ,2 ,1 ,0 ,-1] 
+            busyY = [0 ,1 ,2] #[-1 ,0 ,1 ,2 , 3]
+        elif 3*pi / 8 <= self.controller.pose.theta <= 5*pi / 8:
+            # ok
+            busyX = [-1,0 ,1] # [-2 ,-1 ,0 ,1, 2]
+            busyY = [1, 1 ,1] # [1, 1, 1 ,1 ,1]
+        elif 5*pi / 8 <= self.controller.pose.theta <= 7*pi / 8:
+            busyX = [0 ,-1 ,-2 ]# [1 ,0 ,-1 ,-2 , -3]
+            busyY = [2 ,1 ,0]   # [3  ,2 ,1 ,0 ,-1]
+        elif self.controller.pose.theta <= -7*pi / 8 or self.controller.pose.theta >= 7*pi / 8 :
+            # ok
+            busyX = [-1, -1, -1] # [-1 ,-1, -1, -1 ,-1]
+            busyY = [-1, 0, 1]   # [-2 ,-1, 0, 1 ,2]
+        elif -3*pi / 8 <= self.controller.pose.theta <= -pi / 8:
+            busyX = [2 ,1 ,0 ]  # [3  ,2 ,1 ,0 ,-1]
+            busyY = [0 ,-1 ,-2] # [1 ,0 ,-1 ,-2 , -3]
+        elif -5*pi / 8 <= self.controller.pose.theta <= -3*pi / 8:
+            # ok
+            busyX = [-1, 0, 1]   # [-2 ,-1, 0, 1, 2]
+            busyY = [-1, -1 ,-1] # [-1 ,-1, -1 ,-1, -1]
+        elif -7*pi / 8 <= self.controller.pose.theta <= -5*pi / 8:
+            busyX = [0 ,-1 ,-2 ] # [1 ,0 ,-1 ,-2 , -3]
+            busyY = [-2 ,-1 ,0 ] # [-3  ,-2 ,-1 ,0 ,1]
+        
         if center:
-            self.map.setTileBusy(x,y)
+            # print("BUSY --> ",busyX,busyY)
+            for i in range(len(busyX)):
+                self.map.setTileBusy(tileX + busyX[i],tileY + busyY[i],convert=False)
+
+        if self.map.isModified():
+            self.controller.forceStop()
         
         """print("POSITION ESTIMATION: "+str(self.controller.pose.x)+","+str(self.controller.pose.y))
         print("CENTER OBSTACLE ESTIMATION: "+str(x)+","+str(y))
         print("LEFT   OBSTACLE ESTIMATION: "+str(leftx)+","+str(lefty))
-        print("RIGHT  OBSTACLE ESTIMATION: "+str(rightx)+","+str(righty))
-        
-        print(str(self.map))"""
+        print("RIGHT  OBSTACLE ESTIMATION: "+str(rightx)+","+str(righty))"""
 
     def ballPositionUpdate(self,data):
         ball_dict = json.loads(data.data)
@@ -361,8 +381,8 @@ class RobotinhoPlanner:
         print("PATH: ",path)
         i = 0
         while i < len(path) and not self.map.isModified():
-            print("Position: ",path[i][0]," , ",path[i][1])
-            self.controller.move2goal(Pose(path[i][0],path[i][1]))
+            # print("Position: ",path[i][0]," , ",path[i][1])
+            self.controller.move2tile(Pose(path[i][0],path[i][1]))
             i += 1
 
     def planningOnTheFly(self):

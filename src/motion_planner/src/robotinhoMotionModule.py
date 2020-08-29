@@ -57,7 +57,12 @@ class RobotinhoController:
         
         self.pose.x = round(self.pose.x, 4)
         self.pose.y = round(self.pose.y, 4)
+        
+        self.stopTrigger = False
         self.init_complete = True
+    
+    def forceStop(self):
+        self.stopTrigger = True
 
     def euclidean_distance(self, goal_pose):
         """Euclidean distance between current pose and the goal."""
@@ -77,6 +82,45 @@ class RobotinhoController:
             return w,True
         return w,False
 
+    def move2tile(self,goal_pose):
+        vel_msg = Twist()
+        vel_msg.linear.x = 0
+        vel_msg.angular.z = 0
+        self.velocity_publisher.publish(vel_msg)
+
+        # Tolleranza
+        distance_tolerance = 0.2
+        self.stopTrigger = False
+
+        
+        while self.euclidean_distance(goal_pose) >= distance_tolerance and not self.stopTrigger:
+            # Angular velocity in the z-axis.
+            vel_msg.angular.x = 0
+            vel_msg.angular.y = 0
+            vel_msg.angular.z,pure_rotation = self.angular_vel(goal_pose)
+            
+            if pure_rotation:
+                vel_msg.linear.x = 0
+            else:
+                # Linear velocity in the x-axis.
+                vel_msg.linear.x = self.linear_vel(goal_pose) + 0.1
+            vel_msg.linear.y = 0
+            vel_msg.linear.z = 0
+
+            # Publishing our vel_msg
+            self.velocity_publisher.publish(vel_msg)
+
+            # print(self.pose)
+            # print(vel_msg)
+            # print(self.euclidean_distance(goal_pose))
+
+            # Publish at the desired rate.
+            self.rate.sleep()
+
+        # Stopping our robot after the movement is over.
+        vel_msg.linear.x = 0
+        vel_msg.angular.z = 0
+        self.velocity_publisher.publish(vel_msg)
 
     def move2goal(self,goal_pose):
         """Moves the robot to the goal."""
@@ -85,11 +129,12 @@ class RobotinhoController:
         vel_msg.angular.z = 0
         self.velocity_publisher.publish(vel_msg)
 
-        # Please, insert a number slightly greater than 0 (e.g. 0.01).
-        distance_tolerance = 0.1 # input("Set your tolerance: ")
+        # Tolleranza
+        distance_tolerance = 0.2
+        self.stopTrigger = False
 
         
-        while self.euclidean_distance(goal_pose) >= distance_tolerance:
+        while self.euclidean_distance(goal_pose) >= distance_tolerance and not self.stopTrigger:
             # Angular velocity in the z-axis.
             vel_msg.angular.x = 0
             vel_msg.angular.y = 0

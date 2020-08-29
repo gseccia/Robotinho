@@ -109,7 +109,10 @@ class Tile:
         return self.status ==  Tile.TILE_FREE
     
     def setBusy(self):
-        self.status =  Tile.TILE_BUSY
+        self.status = Tile.TILE_BUSY
+    
+    def setFree(self):
+        self.status = Tile.TILE_FREE
     
     def __repr__(self):
         return str(self.x)+","+str(self.y)+" -> "+ ("FREE" if self.isFree() else "BUSY")
@@ -121,8 +124,12 @@ class Map:
         self.edges = {}
         self.modified = False
 
-        for i in range(-12,12):
-            for j in range(-6,6):
+        self.vertical_dims = [-24,25]
+        self.horizontal_dims = [-12,13]
+        
+
+        for i in range(self.vertical_dims[0],self.vertical_dims[1]):
+            for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
                 self.verteces[str(i)+"|"+str(j)] = (Tile(i,j))
 
         for k,tile in self.verteces.items():
@@ -133,46 +140,65 @@ class Map:
                         available_x = tile.x + i
                         available_y = tile.y + j
 
-                        if -12 <= available_x <= 11 and -6 <= available_y <= 5:
-                            availableTile.append(str(available_x)+"|"+str(available_y))
+                        # Scoraggio traiettorie a zig zag nel breve termine
+                        w = 2 if i != 0 and j != 0 else 1
+
+                        if self.vertical_dims[0] <= available_x < self.vertical_dims[1] and self.horizontal_dims[0] <= available_y < self.horizontal_dims[1]:
+                            availableTile.append((str(available_x)+"|"+str(available_y),w))
 
             self.edges[tile] = availableTile
 
-    def setTileBusy(self,x,y):
-        tx,ty = self.__getTileCoords(x,y)
-        self.verteces[str(tx)+"|"+str(ty)].setBusy()
-        self.modified = True
+    def setTileBusy(self,x,y,convert = True):
+        if convert:
+            tx,ty = self.getTileCoords(x,y)
+        else:
+            tx,ty = x,y
+        
+        if str(tx)+"|"+str(ty) in self.verteces and self.verteces[str(tx)+"|"+str(ty)].isFree():
+            self.verteces[str(tx)+"|"+str(ty)].setBusy()
+            self.modified = True
+        
+        """for v,w in self.edges[self.verteces[str(tx)+"|"+str(ty)]]:
+            self.verteces[v].setBusy()"""
+        
     
     def isModified(self):
         return self.modified
     
-    def __getTileCoords(self,x,y):
-        tileX = x - int(x) > 0.5
-        tileY = y - int(y) > 0.5
+    def getTileCoords(self,x,y):
+        scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
+        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
+
+        x = int(x * scale_x) if x < self.vertical_dims[1] else self.vertical_dims[1] - 1
+        y = int(y * scale_y) if y < self.horizontal_dims[1] else self.horizontal_dims[1] - 1
         
-        return int(x) + tileX,int(y) + tileY
-    
+        return x,y
+
+    def resetMap(self):
+        for v in self.verteces:
+            self.verteces[v].setFree()
+
     def getAdiacentVerteces(self,vertex):
         adList = []
-        for v in self.edges[vertex]:
+        for v,w in self.edges[vertex]:
             if self.verteces[v].isFree():
-                adList.append(v)
+                adList.append((w,v))
         return adList
 
     def __str__(self):
-        out_str = "    "
-        for j in range(-6,6):
-            out_str += "|  {0:2d}  ".format(j)
-        out_str = "\n"
+        out_str = "          "
+        for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
+            out_str += ("| {0:4.2f}".format(-j / 4.0) if -j < 0 else "|  {0:4.2f}".format(-j / 4.0))
+        out_str += "\n"
 
-        for i in range(-12,12):
-            out_str += "| {0:3d} ".format(i) + " "
-            for j in range(-6,6):
-                out_str += "|" + (" FREE " if self.verteces[str(i)+"|"+str(j)].isFree() else " BUSY ")
+        for i in range(self.vertical_dims[0],self.vertical_dims[1]):
+            out_str += ("| {0:4.3f} ".format(-i / 4.0) + " " if -i < 0 else "|  {0:4.3f} ".format(-i / 4.0) + " ")
+            for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
+                out_str += "|" + (" FREE " if self.verteces[str(-i)+"|"+str(-j)].isFree() else " BUSY ")
             out_str += "|\n"
         return out_str
     
-    def bestPath(self,startVertex,endVertex):
+    def bestPath(self,startVertex,endVertex,verbose = False):
         visited = {}
         path = {}
 
@@ -192,35 +218,65 @@ class Map:
 
             previousVertex,currentVertex = element
 
-            for vertex in self.getAdiacentVerteces(self.verteces[currentVertex]):
-                if currentDist + 1 < distance[vertex]:
-                    distance[vertex] = currentDist + 1
+            for w,vertex in self.getAdiacentVerteces(self.verteces[currentVertex]):
+                if currentDist + w < distance[vertex]:
+                    distance[vertex] = currentDist + w
                     
                     pq.push(distance[vertex],(currentVertex,vertex))
 
                     path[vertex] = (distance[vertex],currentVertex)
         
+        if verbose:
+            out_str = "   EST    "
+            for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
+                out_str += ("| {0:4.2f}".format(-j / 4.0) if -j < 0 else "|  {0:4.2f}".format(-j / 4.0))
+            out_str += "\n"
+
+            for i in range(self.vertical_dims[0],self.vertical_dims[1]):
+                out_str += ("| {0:4.3f} ".format(-i / 4.0) + " " if -i < 0 else "|  {0:4.3f} ".format(-i / 4.0) + " ")
+                for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
+                    if distance[str(-i)+"|"+str(-j)] == float("inf"):
+                        out_str += "| +INF "
+                    else:
+                        out_str += "|" + ("{0:6d}".format(distance[str(-i)+"|"+str(-j)]) if self.verteces[str(-i)+"|"+str(-j)].isFree() else " BUSY ")
+                out_str += "|\n"
+            print(out_str)
 
         finalpath = []
-        dist,vertex = path[endVertex]
-        finalpath.append(self.verteces[endVertex])
-        while vertex is not None:
-            finalpath.append(self.verteces[vertex])
-            dist,vertex = path[vertex]
-        finalpath.reverse()
+        if endVertex not in path:
+            print("STUCK: ")
+            print(str(self))
+            self.resetMap()
+
+            return self.bestPath(startVertex,endVertex,verbose)
+        else:
+            dist,vertex = path[endVertex]
+            finalpath.append(self.verteces[endVertex])
+            while vertex is not None:
+                finalpath.append(self.verteces[vertex])
+                dist,vertex = path[vertex]
+            finalpath.reverse()
 
         return finalpath
 
     def getBestTilePath(self,startPose,targetPose):
-        sx,sy = self.__getTileCoords(startPose.x,startPose.y)
-        tx,ty = self.__getTileCoords(targetPose.x,targetPose.y)
+        sx,sy = self.getTileCoords(startPose.x,startPose.y)
+        tx,ty = self.getTileCoords(targetPose.x,targetPose.y)
 
-        path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty))
+        print("Start Pose: ",startPose.x,startPose.y)
+        print("End Pose: ",targetPose.x,targetPose.y)
+
+        print("Start: ",sx,sy)
+        print("End: ",tx,ty)
+        path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty),True)
+
+        scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
+        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
 
         coords = []
         for point in path:
-            x = point.x // 2 + 0.5*(point.x % 2)
-            y = point.y // 2 + 0.5*(point.y % 2)
+            x = float(point.x) / scale_x
+            y = float(point.y) / scale_y
             coords.append((x,y))
         
         self.modified = False
