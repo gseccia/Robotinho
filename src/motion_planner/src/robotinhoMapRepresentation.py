@@ -99,11 +99,12 @@ class Tile:
     TILE_BUSY = 0
     TILE_FREE = 1
 
-    def __init__(self,x,y):
+    def __init__(self,x,y,tileProbability):
         self.x = x
         self.y = y
 
         self.status = Tile.TILE_FREE
+        self.ballProbabilityPresence = tileProbability
     
     def isFree(self):
         return self.status ==  Tile.TILE_FREE
@@ -113,6 +114,12 @@ class Tile:
     
     def setFree(self):
         self.status = Tile.TILE_FREE
+    
+    def setProbability(self,prob):
+        self.ballProbabilityPresence = prob
+    
+    def getProbability(self):
+        return self.ballProbabilityPresence
     
     def __repr__(self):
         return str(self.x)+","+str(self.y)+" -> "+ ("FREE" if self.isFree() else "BUSY")
@@ -126,11 +133,15 @@ class Map:
 
         self.vertical_dims = [-24,25]
         self.horizontal_dims = [-12,13]
+
+        self.maxProbabilityTiles = MinPriorityQueue( ((self.vertical_dims[1] - self.vertical_dims[0]) // 2) *((self.horizontal_dims[1] - self.horizontal_dims[0]) // 2) )
         
 
         for i in range(self.vertical_dims[0],self.vertical_dims[1]):
             for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
-                self.verteces[str(i)+"|"+str(j)] = (Tile(i,j))
+                self.verteces[str(i)+"|"+str(j)] = Tile(i,j, 1.0 / float( (self.vertical_dims[1] - self.vertical_dims[0])*(self.horizontal_dims[1] - self.horizontal_dims[0]) ))
+                if self.vertical_dims[0]//2 <= i <= self.vertical_dims[1]//2 and self.horizontal_dims[0]//2 <= i <= self.horizontal_dims[1]//2:
+                    self.maxProbabilityTiles.push(-self.verteces[str(i)+"|"+str(j)].getProbability(),str(i)+"|"+str(j))
 
         for k,tile in self.verteces.items():
             availableTile = []
@@ -244,11 +255,11 @@ class Map:
 
         finalpath = []
         if endVertex not in path:
-            print("STUCK: ")
-            print(str(self))
+            print("STUCK: ",startVertex,endVertex)
+            # print(str(self))
             self.resetMap()
 
-            return self.bestPath(startVertex,endVertex,verbose)
+            return None
         else:
             dist,vertex = path[endVertex]
             finalpath.append(self.verteces[endVertex])
@@ -270,6 +281,13 @@ class Map:
         print("End: ",tx,ty)
         path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty),True)
 
+        i = 0
+        while i < 10 and path is None:
+            path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty),True)
+            i += 1
+        if path is None:
+            path = []
+
         scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
         scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
 
@@ -281,7 +299,38 @@ class Map:
         
         self.modified = False
         return coords
-        
+    
+    def updateProbableBallPosition(self,x,y,probability,convert = True):
+        if convert:
+            tx,ty = self.getTileCoords(x,y)
+        else:
+            tx,ty = x,y
+
+        self.maxProbabilityTiles.push(-probability,str(tx)+"|"+str(ty))
+
+    def getMostProbableBallPath(self,startPose):
+        if self.maxProbabilityTiles.empty():
+            return None
+        else:
+            while not self.maxProbabilityTiles.empty():
+                prob,tile,_ = self.maxProbabilityTiles.pop()
+
+                sx,sy = self.getTileCoords(startPose.x,startPose.y)
+
+                if self.verteces[tile].isFree():
+                    path = self.bestPath(str(sx)+"|"+str(sy),tile,True)
+
+                    scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
+                    scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
+
+                    coords = []
+                    for point in path:
+                        x = float(point.x) / scale_x
+                        y = float(point.y) / scale_y
+                        coords.append((x,y))
+                    
+                    self.modified = False
+                    return coords
 
 
 if __name__ == "__main__":

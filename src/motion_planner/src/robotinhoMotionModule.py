@@ -89,11 +89,21 @@ class RobotinhoController:
         self.velocity_publisher.publish(vel_msg)
 
         # Tolleranza
-        distance_tolerance = 0.2
+        distance_tolerance = 0.1
         self.stopTrigger = False
+        initPose = Pose(self.pose.x,self.pose.y,self.pose.theta)
+        velocity = sqrt( pow(goal_pose.x - initPose.x,2) + pow(goal_pose.y - initPose.y,2))
+        velocity = velocity if velocity > 0.25 else 0.25
 
-        
-        while self.euclidean_distance(goal_pose) >= distance_tolerance and not self.stopTrigger:
+
+        euclidean_distance = self.euclidean_distance(goal_pose)
+        cycles = 10000
+        totalTime = 0
+
+
+        while euclidean_distance >= distance_tolerance and not self.stopTrigger:
+            last_euclidean = euclidean_distance
+
             # Angular velocity in the z-axis.
             vel_msg.angular.x = 0
             vel_msg.angular.y = 0
@@ -101,9 +111,10 @@ class RobotinhoController:
             
             if pure_rotation:
                 vel_msg.linear.x = 0
+                vel_msg.angular.z = vel_msg.angular.z if vel_msg.angular.z < 0.5 else 0.5
             else:
                 # Linear velocity in the x-axis.
-                vel_msg.linear.x = self.linear_vel(goal_pose) + 0.1
+                vel_msg.linear.x = velocity
             vel_msg.linear.y = 0
             vel_msg.linear.z = 0
 
@@ -116,6 +127,16 @@ class RobotinhoController:
 
             # Publish at the desired rate.
             self.rate.sleep()
+
+            totalTime += self.rate.sleep_dur.to_nsec()
+
+            euclidean_distance = self.euclidean_distance(goal_pose)
+
+            if totalTime > self.rate.sleep_dur.to_nsec() * cycles:
+                self.stopTrigger = True
+                self.stop()
+                print("Force to STOP")
+
 
         # Stopping our robot after the movement is over.
         vel_msg.linear.x = 0

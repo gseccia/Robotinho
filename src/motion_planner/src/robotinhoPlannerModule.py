@@ -6,7 +6,7 @@ from gazebo_msgs.msg import ContactsState
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from robotinhoMotionModule import RobotinhoController, Pose
-from math import pow,sqrt,pi,floor,atan2,cos,sin,tan
+from math import pow,sqrt,pi,floor,atan2,cos,sin,tan,exp
 from cv_bridge import CvBridge, CvBridgeError
 import json
 import numpy as np
@@ -62,12 +62,12 @@ class RobotinhoPlanner:
 
     def occupancyGridUpdate(self,data):
         self.occupancy_grid = np.reshape(data.data,(3,5))
-        Coccupancy = 0.2
+        Coccupancy = 0.1
         
         left = self.occupancy_grid[2][0] > Coccupancy
         left = left or self.occupancy_grid[2][1] > Coccupancy
         
-        center = self.occupancy_grid[2][2] > 0.0
+        center = self.occupancy_grid[2][2] > Coccupancy
         # center = center or self.occupancy_grid[2][1] > Coccupancy
         # center = center or self.occupancy_grid[2][3] > Coccupancy
 
@@ -127,6 +127,8 @@ class RobotinhoPlanner:
             y1 = ball_dict["y1"] 
             y2 = ball_dict["y2"] 
             # print("{0},{1} - {2},{3} ".format(x1,y1,x2,y2))
+            if self.ball_center is None:
+                self.controller.forceStop()
             self.ball_center = (int(x2) + int(x1)) /2
             if int(y2) == 360:
                 self.ball_attached = True
@@ -134,8 +136,11 @@ class RobotinhoPlanner:
                 self.ball_attached = False
             self.ball_last_position = (self.controller.pose.x,self.controller.pose.y)
         else:
+            if self.ball_center is not None:
+                self.controller.forceStop()
             self.ball_center = None
             self.ball_attached = None
+            
 
     def genericLinePlanner(self,initialPosition,targetPosition,limit_lenght_perc = None):
         curve_lenght = sqrt(pow((targetPosition.x - initialPosition.x),2) + pow((targetPosition.y - initialPosition.y),2))
@@ -152,6 +157,108 @@ class RobotinhoPlanner:
 
     def searchBallBehaviour(self):
         print("SEARCH BALL BEHAVIOUR")
+        pointToExplore = []
+        minIndex = 0
+        minDistance = float("inf")
+
+        i = -6.0
+        while i <= 6.0:
+            j = -3.0
+            while j <= 3.0:
+                pointToExplore.append(Pose(i,j))
+                distance = sqrt(pow(i - self.controller.pose.x,2) + pow(j - self.controller.pose.y,2))
+                if distance < minDistance:
+                    minDistance = distance
+                    minIndex = len(pointToExplore) - 1
+                j += 3.0
+            i += 1.0
+        
+        startIndex = minIndex
+
+        while self.ball_center is None:
+            tx,ty = self.map.getTileCoords(pointToExplore[startIndex].x,pointToExplore[startIndex].y)
+            if str(tx)+"|"+str(ty) in self.map.verteces  and self.map.verteces[str(tx)+"|"+str(ty)].isFree():
+                print("ARRIVO: ",pointToExplore[startIndex])
+
+                path = self.map.getBestTilePath(self.controller.pose,pointToExplore[startIndex])
+                print("PATH: ",path)
+                i = 0
+                while i < len(path) and not self.map.isModified() and self.ball_center is None:
+                    print("Position: ",path[i][0]," , ",path[i][1])
+                    self.controller.move2tile(Pose(path[i][0],path[i][1]))
+                    i += 1
+            
+            startIndex = (startIndex + 1) % len(pointToExplore)
+        
+        if self.ball_center is not None:
+            print("REACH THE BALL")
+
+            # Reset Speed
+            self.controller.stop()
+
+            # Reach the ball
+            while self.ball_center is not None and not self.ball_attached:
+                self.reachTheBall()
+            
+            # STOP
+            self.controller.stop()
+
+            # Estimation Kick Position
+            meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
+            distance = 0.3
+            estimate_ball_position = [self.controller.pose.x + distance*cos(self.controller.pose.theta),self.controller.pose.y + distance*sin(self.controller.pose.theta)]
+            x = estimate_ball_position[0] - 0.3 
+            y = meanPortPose.y + (estimate_ball_position[1] - meanPortPose.y)*(x - meanPortPose.x)/(estimate_ball_position[1] - meanPortPose.x)
+            ballKickPose = Pose(x,y)
+
+            # Planning Path to Kick Position
+            points = self.map.getBestTilePath(self.controller.pose,ballKickPose)
+            for point in points:
+                self.controller.move2tile(Pose(point[0],point[1]))
+            theta = atan2(meanPortPose.y - self.controller.pose.y ,meanPortPose.x - self.controller.pose.x)
+            self.controller.rotate(theta)
+
+        """while self.ball_center is None:
+            path = self.map.getMostProbableBallPath(self.controller.pose)
+            print("PATH: ",path)
+            i = 0
+            while i < len(path) and not self.map.isModified() and self.ball_center is None:
+                print("Position: ",path[i][0]," , ",path[i][1])
+                self.controller.move2tile(Pose(path[i][0],path[i][1]))
+                for distance in [0.0,0.25,0.5,0.75,1.0]:
+                    self.map.updateProbableBallPosition(self.controller.pose.x + distance*cos(self.controller.pose.theta),self.controller.pose.y + distance*sin(self.controller.pose.theta),1.0 - exp(distance/2)/(2*pi))
+                i += 1
+
+        while self.ball_center is not None and self.ball_attached is not None:
+            if self.ball_center < 640 // 3:
+                offset = - pi/4
+            elif self.ball_center > 2 * 640 // 3:
+                offset = + pi/4
+            else:
+                offset = 0
+            
+            for distance in [0.0,0.25,0.5,0.75,1.0]:
+                self.map.updateProbableBallPosition(self.controller.pose.x + distance*cos(self.controller.pose.theta + offset),self.controller.pose.y + distance*sin(self.controller.pose.theta + offset),0.9)
+            
+            path = self.map.getMostProbableBallPath(self.controller.pose)
+            print("PATH: ",path)
+            i = 0
+            while i < len(path) and not self.map.isModified() and self.ball_center is not None and self.ball_attached is not None:
+                print("Position: ",path[i][0]," , ",path[i][1])
+                self.controller.move2tile(Pose(path[i][0],path[i][1]))
+
+                if self.ball_center < 640 // 3:
+                    offset = - pi/4
+                elif self.ball_center > 2 * 640 // 3:
+                    offset = + pi/4
+                else:
+                    offset = 0
+                
+                for distance in [0.0,0.25,0.5,0.75,1.0]:
+                    self.map.updateProbableBallPosition(self.controller.pose.x + distance*cos(self.controller.pose.theta),self.controller.pose.y + distance*sin(self.controller.pose.theta),0.9)
+                
+                i += 1
+
         current_x = floor(self.controller.pose.x)
         current_y = floor(self.controller.pose.y)
         points = self.genericLinePlanner(self.controller.pose,Pose(current_x + 0.5,current_y +0.5))
@@ -196,7 +303,7 @@ class RobotinhoPlanner:
                         if not self.explored_cell[x][y]:
                             next_cell_y = y
                             next_cell_x = x
-                            break
+                            break"""
             
     def mantainTarget(self,th = 5):
         if self.ball_center is not None and not 320 - th < self.ball_center < 320 + th:
@@ -377,6 +484,7 @@ class RobotinhoPlanner:
         return None,0
     
     def navigation(self,targetPose):
+        print("NAVIGATE ")
         path = self.map.getBestTilePath(self.controller.pose,targetPose)
         print("PATH: ",path)
         i = 0
@@ -390,7 +498,6 @@ class RobotinhoPlanner:
         # Add a better State Management
         meanPortPose = Pose((self.port[0][0][0] + self.port[0][1][0])/2,(self.port[0][0][1] + self.port[0][1][1])/2)
         while not rospy.is_shutdown() and not self.is_goal:
-            self.navigation(meanPortPose)
             """points,current_angle = self.obstacleAviodanceBehaviour()
             
             if points is None:
@@ -423,12 +530,10 @@ class RobotinhoPlanner:
             
             self.controller.stop()
             
-            if False: #self.ball_center is None:
+            if self.ball_center is None:
                 self.searchBallBehaviour()
-            elif False:
-                self.freeSpaceBehaviour()
-            else:
-                pass
+            elif self.ball_attached is not None:
+                self.navigation(meanPortPose)
         rospy.spin()
 
         
