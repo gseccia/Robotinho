@@ -1,4 +1,5 @@
 #!/usr/bin/env python2
+import time
 
 class MinPriorityQueue():
 
@@ -177,8 +178,8 @@ class Map:
         return self.modified
     
     def getTileCoords(self,x,y):
-        scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
-        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
+        scale_x = (self.vertical_dims[1] - self.vertical_dims[0] - 1) // 12
+        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0] - 1) // 6
 
         x = int(x * scale_x) if x < self.vertical_dims[1] else self.vertical_dims[1] - 1
         y = int(y * scale_y) if y < self.horizontal_dims[1] else self.horizontal_dims[1] - 1
@@ -229,6 +230,9 @@ class Map:
 
             previousVertex,currentVertex = element
 
+            if currentVertex == endVertex:
+                break
+
             for w,vertex in self.getAdiacentVerteces(self.verteces[currentVertex]):
                 if currentDist + w < distance[vertex]:
                     distance[vertex] = currentDist + w
@@ -236,22 +240,25 @@ class Map:
                     pq.push(distance[vertex],(currentVertex,vertex))
 
                     path[vertex] = (distance[vertex],currentVertex)
-        
-        if verbose:
-            out_str = "   EST    "
-            for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
-                out_str += ("| {0:4.2f}".format(-j / 4.0) if -j < 0 else "|  {0:4.2f}".format(-j / 4.0))
-            out_str += "\n"
 
-            for i in range(self.vertical_dims[0],self.vertical_dims[1]):
-                out_str += ("| {0:4.3f} ".format(-i / 4.0) + " " if -i < 0 else "|  {0:4.3f} ".format(-i / 4.0) + " ")
+            if verbose:
+                out_str = "   EST    "
                 for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
-                    if distance[str(-i)+"|"+str(-j)] == float("inf"):
-                        out_str += "| +INF "
-                    else:
-                        out_str += "|" + ("{0:6d}".format(distance[str(-i)+"|"+str(-j)]) if self.verteces[str(-i)+"|"+str(-j)].isFree() else " BUSY ")
-                out_str += "|\n"
-            print(out_str)
+                    out_str += ("| {0:4.2f}".format(-j / 4.0) if -j < 0 else "|  {0:4.2f}".format(-j / 4.0))
+                out_str += "\n"
+
+                for i in range(self.vertical_dims[0],self.vertical_dims[1]):
+                    out_str += ("| {0:4.3f} ".format(-i / 4.0) + " " if -i < 0 else "|  {0:4.3f} ".format(-i / 4.0) + " ")
+                    for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
+                        if distance[str(-i)+"|"+str(-j)] == float("inf"):
+                            out_str += "| +INF "
+                        else:
+                            out_str += "|" + ("{0:6d}".format(distance[str(-i)+"|"+str(-j)]) if self.verteces[str(-i)+"|"+str(-j)].isFree() else " BUSY ")
+                    out_str += "|\n"
+                print(out_str)
+                print("CURRENT EVALUATION: ",currentVertex,endVertex,currentVertex==endVertex)
+
+                time.sleep(1)
 
         finalpath = []
         if endVertex not in path:
@@ -279,17 +286,17 @@ class Map:
 
         print("Start: ",sx,sy)
         print("End: ",tx,ty)
-        path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty),True)
+        path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty))
 
         i = 0
         while i < 10 and path is None:
-            path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty),True)
+            path = self.bestPath(str(sx)+"|"+str(sy),str(tx)+"|"+str(ty))
             i += 1
         if path is None:
             path = []
 
-        scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
-        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
+        scale_x = (self.vertical_dims[1] - self.vertical_dims[0] -1) // 12
+        scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0] -1) // 6
 
         coords = []
         for point in path:
@@ -320,8 +327,8 @@ class Map:
                 if self.verteces[tile].isFree():
                     path = self.bestPath(str(sx)+"|"+str(sy),tile,True)
 
-                    scale_x = (self.vertical_dims[1] - self.vertical_dims[0]) // 12
-                    scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0]) // 3
+                    scale_x = (self.vertical_dims[1] - self.vertical_dims[0] - 1) // 12
+                    scale_y = (self.horizontal_dims[1] - self.horizontal_dims[0] -1) // 6
 
                     coords = []
                     for point in path:

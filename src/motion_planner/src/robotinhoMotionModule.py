@@ -38,11 +38,14 @@ class RobotinhoController:
         # # when a message of type Pose is received.
         self.pose_subscriber = rospy.Subscriber('/robot1/odom',Odometry, self.update_pose)
         self.pose = Pose()
+        self.desidered_velocity = Pose()
         self.odom = Odometry()
         self.rate = rospy.Rate(100000000)
 
         self.init_complete = False
-
+    
+    def isStuck(self):
+        return False # self.pose.linear_vel < 0.1 and self.desidered_velocity.linear_vel > 0.0 and self.pose.radial_vel < 0.1
 
     def update_pose(self, data):
         """Callback function which is called when a new message of type Pose is
@@ -82,6 +85,65 @@ class RobotinhoController:
             return w,True
         return w,False
 
+    def basicMove2tile(self,goal_pose):
+        vel_msg = Twist()
+        vel_msg.linear.x = 0
+        vel_msg.angular.z = 0
+        self.velocity_publisher.publish(vel_msg)
+
+        # Tolleranza
+        print("ROTATE    : ",self.steering_angle(goal_pose) * 180 / pi)
+
+        self.rotate(self.steering_angle(goal_pose))
+
+        print("END ROTATE: ",self.pose.theta * 180 / pi)
+        
+        distance_tolerance = 0.1
+        self.stopTrigger = False
+        initPose = Pose(self.pose.x,self.pose.y,self.pose.theta)
+        velocity = sqrt( pow(goal_pose.x - initPose.x,2) + pow(goal_pose.y - initPose.y,2))
+        velocity = velocity if velocity > 0.2 else 0.2       
+
+        euclidean_distance = self.euclidean_distance(goal_pose)
+        cycles = 10000
+        totalTime = 0
+
+        print("DISTANCE : ",euclidean_distance)
+        while euclidean_distance >= distance_tolerance and not self.stopTrigger:
+            # Angular velocity in the z-axis.
+            vel_msg.angular.x = 0
+            vel_msg.angular.y = 0
+            vel_msg.angular.z = 0
+            
+            vel_msg.linear.x = velocity
+            
+            # print("Pure Rotation   : ",pure_rotation)
+            
+            # print("Velocity        : ",vel_msg.linear.x)
+            # print("Angular Velocity: ",vel_msg.linear.z)
+            # print(self.pose)
+            self.desidered_velocity.linear_vel = vel_msg.linear.x
+            self.desidered_velocity.radial_vel = vel_msg.angular.z
+            
+            vel_msg.linear.y = 0
+            vel_msg.linear.z = 0
+
+            # Publishing our vel_msg
+            self.velocity_publisher.publish(vel_msg)
+
+            self.rate.sleep()
+
+            totalTime += self.rate.sleep_dur.to_nsec()
+
+            euclidean_distance = self.euclidean_distance(goal_pose)
+
+            if totalTime > self.rate.sleep_dur.to_nsec() * cycles:
+                self.stopTrigger = True
+                self.stop()
+                print("Force to STOP")
+        print("DISTANCE REACHED : ",euclidean_distance)
+
+
     def move2tile(self,goal_pose):
         vel_msg = Twist()
         vel_msg.linear.x = 0
@@ -93,12 +155,13 @@ class RobotinhoController:
         self.stopTrigger = False
         initPose = Pose(self.pose.x,self.pose.y,self.pose.theta)
         velocity = sqrt( pow(goal_pose.x - initPose.x,2) + pow(goal_pose.y - initPose.y,2))
-        velocity = velocity if velocity > 0.25 else 0.25
+        velocity = velocity if velocity > 0.75 else 0.75
 
 
         euclidean_distance = self.euclidean_distance(goal_pose)
         cycles = 10000
         totalTime = 0
+        
 
 
         while euclidean_distance >= distance_tolerance and not self.stopTrigger:
@@ -111,10 +174,23 @@ class RobotinhoController:
             
             if pure_rotation:
                 vel_msg.linear.x = 0
-                vel_msg.angular.z = vel_msg.angular.z if vel_msg.angular.z < 0.5 else 0.5
+                vel_msg.angular.z = vel_msg.angular.z if vel_msg.angular.z < 1.0 else 1.0
             else:
                 # Linear velocity in the x-axis.
                 vel_msg.linear.x = velocity
+            
+            # print("Pure Rotation   : ",pure_rotation)
+            
+            # print("Velocity        : ",vel_msg.linear.x)
+            # print("Angular Velocity: ",vel_msg.linear.z)
+            # print(self.pose)
+            self.desidered_velocity.linear_vel = vel_msg.linear.x
+            self.desidered_velocity.radial_vel = vel_msg.angular.z
+
+            print("Linear  Velocity: ",velocity)
+            print("Angular Velocity: ",vel_msg.angular.z)
+            print("Distance        : ",euclidean_distance)
+                        
             vel_msg.linear.y = 0
             vel_msg.linear.z = 0
 
