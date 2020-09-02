@@ -24,8 +24,8 @@ class obstacle_segmenter():
         
         self.image_wh = [640,360]
         self.movement_th = 30
-        self.vertical_cropping = np.asarray([0.0,2.0,1.0,1.0,1.0,2.0]) * self.image_wh[0] * (1.0/7)
-        self.horizontal_cropping = np.asarray([0.0,3.0,1.0]) * (self.image_wh[1] - self.movement_th) * (1.0/7)
+        self.vertical_cropping = np.asarray([0.0,1.0,2.0,2.0,2.0,1.0]) * self.image_wh[0] * (1.0/8)
+        self.horizontal_cropping = np.asarray([0.0,2.0,1.0]) * (self.image_wh[1] - self.movement_th) * (1.0/7)
 
         self.vertical_cropping = map(int,self.vertical_cropping)
         self.horizontal_cropping = map(int,self.horizontal_cropping)
