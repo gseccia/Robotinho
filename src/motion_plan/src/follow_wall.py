@@ -11,6 +11,7 @@ from std_srvs.srv import *
 import numpy as np
 import math
 
+
 pub_ = None
 regions_ = {
     'right': 0,
@@ -40,11 +41,11 @@ def clbk_occupancy_grid(msg):
     occupancy_grid = np.reshape(msg.data,(3,5))
     max_value=20
     regions_ = {
-        'right':  min(max_value-int(occupancy_grid[2][4]*max_value), max_value),
-        'fright': min(max_value-int(occupancy_grid[2][3]*max_value), max_value),
-        'front':  min(max_value-int(occupancy_grid[2][2]*max_value), max_value),
-        'fleft':  min(max_value-int(occupancy_grid[2][1]*max_value), max_value),
-        'left':   min(max_value-int(occupancy_grid[2][0]*max_value), max_value),
+        'right':  max_value,
+        'fright': min(max(0, max_value-int(occupancy_grid[1][4]*max_value)), max_value),
+        'front':  min(max(0, max_value-int(np.sum(occupancy_grid[2][:])*max_value)), max_value),
+        'fleft':  min(max(0, max_value-int(occupancy_grid[1][0]*max_value)), max_value),
+        'left':   max_value,
     }
     take_action()
 
@@ -65,48 +66,49 @@ def take_action():
 
     state_description = ''
 
-    d = 16
+    d = 15
 
-    if regions['front'] > d and regions['fleft'] > d and regions['fright'] > d:
-        state_description = 'case 1 - nothing'
+    if regions['front'] >= d and regions['fleft'] >= d and regions['fright'] >= d:
+        state_description = 'case 1 - nothing' #nulla -> giro a dx
         change_state(0)
-    elif regions['front'] < d and regions['fleft'] > d and regions['fright'] > d:
-        state_description = 'case 2 - front'
+    elif regions['front'] <= d and regions['fleft'] >= d and regions['fright'] >= d:
+        state_description = 'case 2 - front' #ostacolo davanti -> giro a sx
         change_state(1)
-    elif regions['front'] > d and regions['fleft'] > d and regions['fright'] < d:
-        state_description = 'case 3 - fright'
+    elif regions['front'] >= d and regions['fleft'] >= d and regions['fright'] <= d:
+        state_description = 'case 3 - fright' #ostacolo sulla destra -> seguo il muro
         change_state(2)
-    elif regions['front'] > d and regions['fleft'] < d and regions['fright'] > d:
-        state_description = 'case 4 - fleft'
+    elif regions['front'] >= d and regions['fleft'] <= d and regions['fright'] >= d:
+        state_description = 'case 4 - fleft' #ostacolo sulla sinistra -> giro a dx
         change_state(0)
-    elif regions['front'] < d and regions['fleft'] > d and regions['fright'] < d:
-        state_description = 'case 5 - front and fright'
+    elif regions['front'] <= d and regions['fleft'] >= d and regions['fright'] <= d:
+        state_description = 'case 5 - front and fright' #centro-destra occupato -> giro a sx
         change_state(1)
-    elif regions['front'] < d and regions['fleft'] < d and regions['fright'] > d:
-        state_description = 'case 6 - front and fleft'
+    elif regions['front'] <= d and regions['fleft'] <= d and regions['fright'] >= d:
+        state_description = 'case 6 - front and fleft' #centro-sinistra occupato -> giro a sx
         change_state(1)
-    elif regions['front'] < d and regions['fleft'] < d and regions['fright'] < d:
-        state_description = 'case 7 - front and fleft and fright'
-        change_state(1)
-    elif regions['front'] > d and regions['fleft'] < d and regions['fright'] < d:
-        state_description = 'case 8 - fleft and fright'
+    elif regions['front'] <= d and regions['fleft'] <= d and regions['fright'] <= d:
+        state_description = 'case 7 - front and fleft and fright'  #ostacolo davanti -> giro a sx
+        change_state(1) 
+    elif regions['front'] >= d and regions['fleft'] <= d and regions['fright'] <= d:
+        state_description = 'case 8 - fleft and fright' #ostacolo dx e sx -> giro a sx
         change_state(0)
     else:
         state_description = 'unknown case'
         rospy.loginfo(regions)
+
     rospy.loginfo(regions)
     rospy.loginfo(state_description)
 
 def find_wall():
     msg = Twist()
-    msg.linear.x = 0.4
-    msg.angular.z = 0.6
+    msg.linear.x = 0.1
+    msg.angular.z = -0.6
     return msg
 
 
 def turn_left():
     msg = Twist()
-    msg.angular.z = -0.6
+    msg.angular.z = 0.6
     return msg
 
 
@@ -114,7 +116,7 @@ def follow_the_wall():
     global regions_
 
     msg = Twist()
-    msg.linear.x = 0.8
+    msg.linear.x = 0.2
     return msg
 
 
@@ -125,6 +127,7 @@ def main():
     pub_ = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size=1)
     sub = rospy.Subscriber('/occupancy_grid', Float32MultiArray, clbk_occupancy_grid)
     srv = rospy.Service('wall_follower_switch', SetBool, wall_follower_switch)
+
 
     rate = rospy.Rate(20)
     while not rospy.is_shutdown():

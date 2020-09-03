@@ -24,8 +24,8 @@ class obstacle_segmenter():
         
         self.image_wh = [640,360]
         self.movement_th = 30
-        self.vertical_cropping = np.asarray([0.0,1.0,2.0,2.0,2.0,1.0]) * self.image_wh[0] * (1.0/8)
-        self.horizontal_cropping = np.asarray([0.0,2.0,1.0]) * (self.image_wh[1] - self.movement_th) * (1.0/7)
+        self.vertical_cropping = np.asarray([0.0,1.0,1.0,1.0,1.0,1.0]) * self.image_wh[0] * (1.0/5)
+        self.horizontal_cropping = np.asarray([0.0,3.5,2.0]) * (self.image_wh[1] - self.movement_th) * (1.0/7)
 
         self.vertical_cropping = map(int,self.vertical_cropping)
         self.horizontal_cropping = map(int,self.horizontal_cropping)
@@ -154,7 +154,17 @@ class obstacle_segmenter():
 
         self.occupancy_grid_pub.publish(msg)
 
-        ros_image = self.bridge.cv2_to_imgmsg(mask_grid)
+        #mask_grid = cv2.cvtColor(mask_grid, cv2.COLOR_GRAY2BGR)
+
+        cv2.line(cv_image, (self.x0, self.y1), (self.x5, self.y1), (255, 255, 0), 3) 
+        cv2.line(cv_image, (self.x0, self.y2), (self.x5, self.y2), (255, 255, 0), 3) 
+
+        cv2.line(cv_image, (self.x1, self.y0), (self.x1, self.y3), (0, 0, 255), 3) 
+        cv2.line(cv_image, (self.x2, self.y0), (self.x2, self.y3), (0, 0, 255), 3) 
+        cv2.line(cv_image, (self.x3, self.y0), (self.x3, self.y3), (255, 0, 255), 3) 
+        cv2.line(cv_image, (self.x4, self.y0), (self.x4, self.y3), (255, 0, 255), 3) 
+
+        ros_image = self.bridge.cv2_to_imgmsg(cv_image)
         self.image_pub.publish(ros_image)
     
 
@@ -171,5 +181,3 @@ def main(args):
 
 if __name__ == '__main__':
     main(sys.argv)
-
-
