@@ -18,9 +18,10 @@ yaw_ = 0
 state_ = 0
 # goal
 desired_position_ = Point()
-desired_position_.x = rospy.get_param('des_pos_x')
-desired_position_.y = rospy.get_param('des_pos_y')
+desired_position_.x = 0
+desired_position_.y = 0
 desired_position_.z = 0
+
 # parameters
 yaw_precision_ = math.pi / 45  # +/- 4 degree allowed
 dist_precision_ = 0.3
@@ -51,7 +52,7 @@ def fix_yaw(des_pos):
 
     twist_msg = Twist()
     if math.fabs(err_yaw) > yaw_precision_:
-        twist_msg.angular.z = -0.3 if err_yaw > 0 else 0.3
+        twist_msg.angular.z = 0.5 if err_yaw > 0 else -0.5
 
     pub.publish(twist_msg)
 
@@ -89,6 +90,11 @@ def done():
     pub.publish(twist_msg)
 
 
+def clbk_desired_position(msg):
+    global desired_position_
+
+    desired_position_ = msg.pose.pose.position
+
 def clbk_odom(msg):
     global position_
     global yaw_
@@ -110,8 +116,9 @@ def main():
     global pub, active_
 
     rospy.init_node('go_to_point')
-    pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
-    sub_odom = rospy.Subscriber('/odom', Odometry, clbk_odom)
+    pub = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size=1)
+    sub_odom = rospy.Subscriber('/robot1/odom', Odometry, clbk_odom)
+    sub_desPosition = rospy.Subscriber('/robot1/desired_position', Odometry, clbk_desired_position)
     srv = rospy.Service('go_to_point_switch', SetBool, go_to_point_switch)
 
     rate = rospy.Rate(20)
@@ -119,6 +126,7 @@ def main():
         if not active_:
             continue
         else:
+            print("State: ",state_)
             if state_ == 0:
                 fix_yaw(desired_position_)
             elif state_ == 1:
@@ -129,3 +137,6 @@ def main():
                 rospy.logerr('Unknown state!')
 
         rate.sleep()
+
+if __name__ == "__main__":
+    main()

@@ -26,7 +26,7 @@ state_dict_ = {
     1: 'turn left',
     2: 'follow the wall',
 }
-active_ = True
+active_ = False
 
 def wall_follower_switch(req):
     global active_
@@ -43,7 +43,7 @@ def clbk_occupancy_grid(msg):
     regions_ = {
         'right':  max_value,
         'fright': min(max(0, max_value-int(occupancy_grid[1][4]*max_value)), max_value),
-        'front':  min(max(0, max_value-int(np.sum(occupancy_grid[2][:])*max_value)), max_value),
+        'front':  min(max(0, max_value-int(np.sum(occupancy_grid[2][1:4])*max_value)), max_value),
         'fleft':  min(max(0, max_value-int(occupancy_grid[1][0]*max_value)), max_value),
         'left':   max_value,
     }
@@ -66,8 +66,7 @@ def take_action():
 
     state_description = ''
 
-    d = 15
-
+    d = 5 # 15
     if regions['front'] >= d and regions['fleft'] >= d and regions['fright'] >= d:
         state_description = 'case 1 - nothing' #nulla -> giro a dx
         change_state(0)
@@ -88,7 +87,11 @@ def take_action():
         change_state(1)
     elif regions['front'] <= d and regions['fleft'] <= d and regions['fright'] <= d:
         state_description = 'case 7 - front and fleft and fright'  #ostacolo davanti -> giro a sx
-        change_state(1) 
+        # if regions['front'] > 5.0:
+        #     change_state(2)
+        #  else:
+        change_state(1)
+
     elif regions['front'] >= d and regions['fleft'] <= d and regions['fright'] <= d:
         state_description = 'case 8 - fleft and fright' #ostacolo dx e sx -> giro a sx
         change_state(0)
@@ -101,14 +104,14 @@ def take_action():
 
 def find_wall():
     msg = Twist()
-    msg.linear.x = 0.1
-    msg.angular.z = -0.6
+    # msg.linear.x = 0.05
+    msg.angular.z = -1.8
     return msg
 
 
 def turn_left():
     msg = Twist()
-    msg.angular.z = 0.6
+    msg.angular.z = 2.0
     return msg
 
 
@@ -116,7 +119,7 @@ def follow_the_wall():
     global regions_
 
     msg = Twist()
-    msg.linear.x = 0.2
+    msg.linear.x = 0.4
     return msg
 
 
