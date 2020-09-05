@@ -91,9 +91,12 @@ def done():
 
 
 def clbk_desired_position(msg):
-    global desired_position_
+    global desired_position_, state_
 
+    if desired_position_ != msg.pose.pose.position and state_ == 2:
+        state_ = 0
     desired_position_ = msg.pose.pose.position
+
 
 def clbk_odom(msg):
     global position_
@@ -126,7 +129,7 @@ def main():
         if not active_:
             continue
         else:
-            print("State: ",state_)
+            print("State: ",state_, "Desidered: ",desired_position_)
             if state_ == 0:
                 fix_yaw(desired_position_)
             elif state_ == 1:

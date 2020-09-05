@@ -4,7 +4,7 @@ import rospy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, Bool
 import numpy as np
 from tf import transformations
 from math import cos,sin
@@ -107,6 +107,7 @@ class MinPriorityQueue():
 class Tile:
     TILE_BUSY = 0
     TILE_FREE = 1
+    TILE_EXPLORED = 2
 
     def __init__(self,x,y,tileProbability):
         self.x = x
@@ -118,11 +119,17 @@ class Tile:
     def isFree(self):
         return self.status ==  Tile.TILE_FREE
     
+    def isExplored(self):
+        return self.status ==  Tile.TILE_EXPLORED
+    
     def setBusy(self):
         self.status = Tile.TILE_BUSY
     
     def setFree(self):
         self.status = Tile.TILE_FREE
+    
+    def setExplored(self):
+        self.status = Tile.TILE_EXPLORED
     
     def setProbability(self,prob):
         self.ballProbabilityPresence = prob
@@ -195,6 +202,16 @@ class Map:
             self.verteces[str(tx)+"|"+str(ty)].setFree()
             self.modified = True  
     
+    def setTileExplored(self,x,y,convert = True):
+        if convert:
+            tx,ty = self.getTileCoords(x,y)
+        else:
+            tx,ty = x,y
+        
+        if str(tx)+"|"+str(ty) in self.verteces and not self.verteces[str(tx)+"|"+str(ty)].isFree():
+            self.verteces[str(tx)+"|"+str(ty)].setExplored()
+            self.modified = True 
+
     def isModified(self):
         return self.modified
     
@@ -361,13 +378,25 @@ class Map:
                     return coords
 
 def positionUpdate(msg):
-    global current_x, current_y, current_theta
+    global current_x, current_y, current_theta, initialize
 
     current_x = msg.pose.pose.position.x
     current_y = msg.pose.pose.position.y
     
     roll,pitch,theta = transformations.euler_from_quaternion([msg.pose.pose.orientation.x,msg.pose.pose.orientation.y,msg.pose.pose.orientation.z,msg.pose.pose.orientation.w])
     current_theta = theta
+
+    initialize = True
+
+def positionDesUpdate(msg):
+    global desired_x,desired_y,respToPublish 
+
+    respToPublish = desired_x != msg.pose.pose.position.x and desired_y != msg.pose.pose.position.y
+
+    desired_x = msg.pose.pose.position.x
+    desired_y = msg.pose.pose.position.y
+    
+    
 
 def mapUpdate(msg):
     occupancy_grid = np.reshape(msg.data,(3,5))
@@ -385,16 +414,29 @@ def mapUpdate(msg):
 if __name__ == "__main__":
     rospy.init_node("Map_NODE")
     mappa = Map()
+
+    initialize = False
     current_x = 0
     current_y = 0
     current_theta = 0
+    
+    desired_x = 0
+    desired_y = 0
+    respToPublish = False
 
     positionSubscriber = rospy.Subscriber("/robot1/odom",Odometry,positionUpdate)
     occupancy_grid = rospy.Subscriber("/occupancy_grid",Float32MultiArray,mapUpdate)
 
+    desideredPosition  = rospy.Subscriber("/robot1/des_position", Odometry, positionDesUpdate)
+    pathExistPub  = rospy.Publisher("/robot1/path_exist", Bool , queue_size= 1)
+    
+
     w = mappa.horizontal_dims[1] - mappa.horizontal_dims[0] - 1
     h = mappa.vertical_dims[1] - mappa.vertical_dims[0] - 1
     cv_image =  np.zeros((h,w,3),dtype=np.uint8)
+
+    while not initialize:
+        pass
 
     while not rospy.is_shutdown():
         mappa.current_x = current_x
@@ -403,16 +445,25 @@ if __name__ == "__main__":
         
         x,y = mappa.getTileCoords(mappa.current_x,mappa.current_y)
 
+        mappa.verteces[str(x)+"|"+str(y)].setExplored()
+
         for i in range(mappa.vertical_dims[0],mappa.vertical_dims[1]):
             for j in range(mappa.horizontal_dims[0],mappa.horizontal_dims[1]):
                 if mappa.verteces[str(-i)+"|"+str(-j)].isFree():
                     cv_image[i + mappa.vertical_dims[0]][j + mappa.horizontal_dims[0]][:] = (255,255,255)
+                elif mappa.verteces[str(-i)+"|"+str(-j)].isExplored():
+                    cv_image[i + mappa.vertical_dims[0]][j + mappa.horizontal_dims[0]][:] = (0,255,0)
                 else:
                     cv_image[i + mappa.vertical_dims[0]][j + mappa.horizontal_dims[0]][:] = (0,0,0)
         
         cv_image[-x + mappa.vertical_dims[0]][-y + mappa.horizontal_dims[0]][:] = (0,0,255)
 
         ros_image = mappa.bridge.cv2_to_imgmsg(cv_image)
-        mappa.image_pub.publish(ros_image)    
+        mappa.image_pub.publish(ros_image)
+
+        if respToPublish:
+            dx,dy = mappa.getTileCoords(desired_x,desired_y)
+            pathExistPub.publish(Bool(mappa.bestPath(str(x) +"|"+str(y),str(dx) +"|"+str(dy)) != None))
+            respToPublish = False
 
 
