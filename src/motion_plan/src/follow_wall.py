@@ -66,7 +66,7 @@ def take_action():
 
     state_description = ''
 
-    d = 5 # 15
+    d = 15
     if regions['front'] >= d and regions['fleft'] >= d and regions['fright'] >= d:
         state_description = 'case 1 - nothing' #nulla -> giro a dx
         change_state(0)
@@ -94,7 +94,7 @@ def take_action():
 
     elif regions['front'] >= d and regions['fleft'] <= d and regions['fright'] <= d:
         state_description = 'case 8 - fleft and fright' #ostacolo dx e sx -> giro a sx
-        change_state(0)
+        change_state(2)
     else:
         state_description = 'unknown case'
         rospy.loginfo(regions)

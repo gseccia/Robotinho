@@ -1,5 +1,13 @@
 #!/usr/bin/env python2
 import time
+import rospy
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32MultiArray
+import numpy as np
+from tf import transformations
+from math import cos,sin
 
 class MinPriorityQueue():
 
@@ -136,7 +144,6 @@ class Map:
         self.horizontal_dims = [-12,13]
 
         self.maxProbabilityTiles = MinPriorityQueue( ((self.vertical_dims[1] - self.vertical_dims[0]) // 2) *((self.horizontal_dims[1] - self.horizontal_dims[0]) // 2) )
-        
 
         for i in range(self.vertical_dims[0],self.vertical_dims[1]):
             for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
@@ -159,6 +166,14 @@ class Map:
                             availableTile.append((str(available_x)+"|"+str(available_y),w))
 
             self.edges[tile] = availableTile
+            
+            self.current_x = 0
+            self.current_y = 0
+            self.current_theta = 0
+
+            self.image_pub = rospy.Publisher("/map_image",Image, queue_size = 1)
+            self.bridge = CvBridge()
+
 
     def setTileBusy(self,x,y,convert = True):
         if convert:
@@ -169,10 +184,16 @@ class Map:
         if str(tx)+"|"+str(ty) in self.verteces and self.verteces[str(tx)+"|"+str(ty)].isFree():
             self.verteces[str(tx)+"|"+str(ty)].setBusy()
             self.modified = True
+
+    def setTileFree(self,x,y,convert = True):
+        if convert:
+            tx,ty = self.getTileCoords(x,y)
+        else:
+            tx,ty = x,y
         
-        """for v,w in self.edges[self.verteces[str(tx)+"|"+str(ty)]]:
-            self.verteces[v].setBusy()"""
-        
+        if str(tx)+"|"+str(ty) in self.verteces and not self.verteces[str(tx)+"|"+str(ty)].isFree():
+            self.verteces[str(tx)+"|"+str(ty)].setFree()
+            self.modified = True  
     
     def isModified(self):
         return self.modified
@@ -196,7 +217,7 @@ class Map:
             if self.verteces[v].isFree():
                 adList.append((w,v))
         return adList
-
+    
     def __str__(self):
         out_str = "          "
         for j in range(self.horizontal_dims[0],self.horizontal_dims[1]):
@@ -339,23 +360,59 @@ class Map:
                     self.modified = False
                     return coords
 
+def positionUpdate(msg):
+    global current_x, current_y, current_theta
+
+    current_x = msg.pose.pose.position.x
+    current_y = msg.pose.pose.position.y
+    
+    roll,pitch,theta = transformations.euler_from_quaternion([msg.pose.pose.orientation.x,msg.pose.pose.orientation.y,msg.pose.pose.orientation.z,msg.pose.pose.orientation.w])
+    current_theta = theta
+
+def mapUpdate(msg):
+    occupancy_grid = np.reshape(msg.data,(3,5))
+
+    busy_x = current_x + 0.15 * cos(current_theta)
+    busy_y = current_y + 0.15 * sin(current_theta)
+
+    max_value = 20
+
+    if min(max(0, max_value-int(np.sum(occupancy_grid[2][1:4])*max_value)), max_value) < 15:
+        mappa.setTileBusy(busy_x, busy_y)
+    else:
+        mappa.setTileFree(busy_x, busy_y)
 
 if __name__ == "__main__":
+    rospy.init_node("Map_NODE")
     mappa = Map()
+    current_x = 0
+    current_y = 0
+    current_theta = 0
 
-    """for i,vertex in enumerate(mappa.verteces):
-        print(i,mappa.verteces[vertex])
-    for i,vertex in enumerate(mappa.edges):
-        print(vertex," : ",mappa.edges[vertex])"""
+    positionSubscriber = rospy.Subscriber("/robot1/odom",Odometry,positionUpdate)
+    occupancy_grid = rospy.Subscriber("/occupancy_grid",Float32MultiArray,mapUpdate)
 
-    mappa.verteces["1|1"].setBusy()
-    
-    mappa.bestPath("0|0","2|2")
+    w = mappa.horizontal_dims[1] - mappa.horizontal_dims[0] - 1
+    h = mappa.vertical_dims[1] - mappa.vertical_dims[0] - 1
+    cv_image =  np.zeros((h,w,3),dtype=np.uint8)
 
+    while not rospy.is_shutdown():
+        mappa.current_x = current_x
+        mappa.current_y = current_y
+        mappa.current_theta = current_theta
+        
+        x,y = mappa.getTileCoords(mappa.current_x,mappa.current_y)
 
+        for i in range(mappa.vertical_dims[0],mappa.vertical_dims[1]):
+            for j in range(mappa.horizontal_dims[0],mappa.horizontal_dims[1]):
+                if mappa.verteces[str(-i)+"|"+str(-j)].isFree():
+                    cv_image[i + mappa.vertical_dims[0]][j + mappa.horizontal_dims[0]][:] = (255,255,255)
+                else:
+                    cv_image[i + mappa.vertical_dims[0]][j + mappa.horizontal_dims[0]][:] = (0,0,0)
+        
+        cv_image[-x + mappa.vertical_dims[0]][-y + mappa.horizontal_dims[0]][:] = (0,0,255)
 
-    
-    
-    
+        ros_image = mappa.bridge.cv2_to_imgmsg(cv_image)
+        mappa.image_pub.publish(ros_image)    
 
 
