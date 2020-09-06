@@ -3,11 +3,12 @@ from __future__ import print_function
 import rospy
 from std_msgs.msg import String,Float32MultiArray,Bool
 from gazebo_msgs.msg import ContactsState
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
 from math import pow,sqrt,pi,floor,atan2,cos,sin,tan,exp
 from cv_bridge import CvBridge, CvBridgeError
+from tf import transformations
 import json
 import numpy as np
 import cv2
@@ -24,10 +25,12 @@ class RobotinhoPlanner:
 
         self.current_x = 0
         self.current_y = 0
+        self.current_theta = 0
 
         self.ball_position_subscriber = rospy.Subscriber("/robot_ball_position",String,self.ballPositionUpdate)
         self.desired_Position = rospy.Publisher('/robot1/desired_position', Odometry, queue_size= 1)
         self.positionUpdateSub = rospy.Subscriber("/robot1/odom",Odometry,self.positionUpdate)
+        self.controlRobot = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size= 1)
         
         self.explorePositionPub = rospy.Publisher("/robot1/des_position", Odometry, queue_size= 1)
         self.exploreResponse = rospy.Subscriber("/robot1/path_exist", Bool, self.respUpdate) 
@@ -49,7 +52,7 @@ class RobotinhoPlanner:
             else:
                 self.explorationPoints += list(itertools.product([x],rev_yPoint))
 
-        
+        self.rate = rospy.Rate(50)
 
         self.bridge = CvBridge()
         self.ball_position = None
@@ -73,6 +76,14 @@ class RobotinhoPlanner:
     def positionUpdate(self,msg):
         self.current_x = msg.pose.pose.position.x
         self.current_y = msg.pose.pose.position.y
+
+        quaternion = (
+        msg.pose.pose.orientation.x,
+        msg.pose.pose.orientation.y,
+        msg.pose.pose.orientation.z,
+        msg.pose.pose.orientation.w)
+        euler = transformations.euler_from_quaternion(quaternion)
+        self.current_theta = euler[2]
         
     def mapUpdate(self,msg):
         try:
@@ -141,6 +152,62 @@ class RobotinhoPlanner:
             nextPoint = (nextPoint + 1) % len(self.explorationPoints)
             
             print("End ")
+        
+        # STOP
+        msg.pose.pose.position.x = self.current_x
+        msg.pose.pose.position.y = self.current_y
+        self.desired_Position.publish(msg)
+    
+    def reachTheBallBehaviour(self):
+        # Ball at center of screen
+        print("REACH THE BALL")
+
+        if self.ball_center is not None:
+            # Estimation Ball Position Point
+            msg = Odometry()
+
+            # Reach The Ball
+            ball_center = self.ball_center
+            
+            distance = 0.3
+            msg.pose.pose.position.x = self.current_x + (distance)*cos(self.current_theta - (float(ball_center) - 320) / 640)
+            msg.pose.pose.position.y = self.current_y + (distance)*sin(self.current_theta - (float(ball_center) - 320) / 640)
+
+            while not rospy.is_shutdown() and not self.ball_attached and ball_center is not None: 
+                self.desired_Position.publish(msg)
+                ball_center = self.ball_center
+                if sqrt(pow(msg.pose.pose.position.x- self.current_x,2) + pow(msg.pose.pose.position.y - self.current_y,2)) < self.distance_error and ball_center is not None:
+                    msg.pose.pose.position.x = self.current_x + (distance)*cos(self.current_theta - (float(ball_center) - 320) / 640)
+                    msg.pose.pose.position.y = self.current_y + (distance)*sin(self.current_theta - (float(ball_center) - 320) / 640)
+            
+            # STOP
+            msg.pose.pose.position.x = self.current_x
+            msg.pose.pose.position.y = self.current_y
+            self.desired_Position.publish(msg)
+    
+    def goalBehavior(self):
+        print("GOAL Behaviour!")
+        ballEstimationPosition = Point()    
+        ballEstimationPosition.x = self.current_x + 0.1*cos(self.current_theta)
+        ballEstimationPosition.y = self.current_y + 0.1*sin(self.current_theta)
+
+        meanPortPose = Point()
+        meanPortPose.x = (self.port[0][0][0] + self.port[0][1][0])/2
+        meanPortPose.y = (self.port[0][0][1] + self.port[0][1][1])/2
+
+        msg = Odometry()
+
+        # Senza Considerare Ostacoli lungo il tragitto !MANCANO CONTROLLI!
+        msg.pose.pose.position.x = ballEstimationPosition.x - 0.3 
+        msg.pose.pose.position.y = meanPortPose.y + (ballEstimationPosition.y - meanPortPose.y)*(x - meanPortPose.x)/(ballEstimationPosition.y - meanPortPose.x)
+
+        while sqrt(pow(msg.pose.pose.position.x - self.current_x,2) + pow(msg.pose.pose.position.y - self.current_y,2)) < self.distance_error:
+            self.desired_Position.publish(msg)
+
+        msg.pose.pose.position.x = meanPortPose.x
+        msg.pose.pose.position.y = meanPortPose.y
+        while sqrt(pow(msg.pose.pose.position.x - self.current_x,2) + pow(msg.pose.pose.position.y - self.current_y,2)) < self.distance_error:
+            self.desired_Position.publish(msg)
 
     
     def planningOnTheFly(self):
@@ -149,10 +216,10 @@ class RobotinhoPlanner:
         while not rospy.is_shutdown() and not self.is_goal:           
             if self.ball_center is None:
                 self.searchBallBehaviour()
-            elif self.ball_attached is not None:
-                print("BALL FOUND!")
+            elif self.ball_attached:
+                self.goalBehavior()
             else:
-                print("BALL FOUND, NOT REACHED!")
+                self.reachTheBallBehaviour()
         rospy.spin()
 
 
