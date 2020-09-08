@@ -15,10 +15,9 @@ from cv_bridge import CvBridge, CvBridgeError
 
 class obstacle_segmenter():
 
-
-
+    # Divisione in regioni della porzione di campo vista dal robot.
     def __init__(self):
-        print("Sgmenter Initialization...",end="")
+        print("Segmenter Initialization...",end="")
         self.image_pub = rospy.Publisher("/robot_obstacle_seg_output",Image, queue_size = 1)
         self.occupancy_grid_pub = rospy.Publisher("/occupancy_grid",Float32MultiArray, queue_size = 1)
         
@@ -54,7 +53,9 @@ class obstacle_segmenter():
 
         self.bridge = CvBridge()
         print("Done!")
-        
+
+
+    #Ritorna le coordinate relative alla diverse regioni della occupancy grid.     
     def get_grid_region(self, region):
  
         if region == "A1":  return [(self.x0, self.y0),(self.x1, self.y1)]
@@ -89,6 +90,7 @@ class obstacle_segmenter():
                  
         else: return None  
         
+    
     def compute_fill_ratio(self, mask_grid, coords):
         crop = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0]]
         mean_values = cv2.mean(crop)
@@ -133,7 +135,6 @@ class obstacle_segmenter():
               mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :] = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :]/2
               mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], 2] = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], 2] + int(fill_ratio*(255/2))
 
-        #print(mask)
         msg = Float32MultiArray()
 
         # This is almost always zero there is no empty padding at the start of your data
@@ -166,8 +167,6 @@ class obstacle_segmenter():
 
         ros_image = self.bridge.cv2_to_imgmsg(cv_image)
         self.image_pub.publish(ros_image)
-    
-
 
 def main(args):
   rospy.init_node('obstacle_segmenter', anonymous=True)

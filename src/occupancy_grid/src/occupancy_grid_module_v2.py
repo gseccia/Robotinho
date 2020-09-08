@@ -18,7 +18,7 @@ class obstacle_segmenter():
 
 
     def __init__(self):
-        print("Sgmenter Initialization...",end="")
+        print("Segmenter Initialization...",end="")
         self.image_pub = rospy.Publisher("/robot_obstacle_seg_output",Image, queue_size = 1)
         self.occupancy_grid_pub = rospy.Publisher("/occupancy_grid",Float32MultiArray, queue_size = 1)
         self.image_wh = [640,360]
@@ -32,8 +32,8 @@ class obstacle_segmenter():
         self.minor_base_trapezium = 0.3 * self.image_wh[0]   
         
         # ------- lateral regions params ---------#
-        self.h1_lateral = 0.5 * self.image_wh[1]
-        self.h2_depth = 0.25 * self.image_wh[1]
+        self.h1_lateral = 0.7 * self.image_wh[1]
+        self.h2_depth = 0.15 * self.image_wh[1]
 
         #region labels
         self.regions = ["F", "FL", "FR"]
@@ -74,7 +74,7 @@ class obstacle_segmenter():
 
 
         # self.occupancy_grid = [[0 for i in range(len(self.vertical_cropping) - 1)] for j in range(len(self.horizontal_cropping))]
-        self.occupancy_grid = []
+        self.occupancy_grid = np.zeros(3)
         self.image = None
 
 
@@ -96,8 +96,8 @@ class obstacle_segmenter():
         else: return None  
         
     def compute_fill_ratio(self, mask_grid, region_mask):
-        mask_grid_tmp = mask_grid[:,:,0]//255
-        region_mask_tmp = region_mask//255
+        mask_grid_tmp = mask_grid[:,:,0]/255.0
+        region_mask_tmp = region_mask/255.0
         mul_matrix = np.multiply(mask_grid_tmp,region_mask_tmp)
         sum_elem_in_mul_matrix = np.sum(mul_matrix)
         sum_elem_in_region_mask = np.sum(region_mask_tmp)
@@ -126,31 +126,23 @@ class obstacle_segmenter():
 
         # Generating the final mask to detect red color
         mask = mask1+mask2
-        _, threshed_img = cv2.threshold(mask, 220, 255, cv2.THRESH_BINARY)
-        image, contours, hier = cv2.findContours(threshed_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
-        for cnt in contours:
+        #_, threshed_img = cv2.threshold(mask, 220, 255, cv2.THRESH_BINARY)
+        #image, contours, hier = cv2.findContours(threshed_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+        #for cnt in contours:
             # get convex hull
-            hull = cv2.convexHull(cnt)
-            cv2.fillPoly(mask, pts =[hull], color=255)  
+            #hull = cv2.convexHull(cnt)
+            #cv2.fillPoly(mask, pts =[hull], color=255)  
         mask_grid = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         
         
         # compute the fill of crop regions
-        for region in self.regions:
+        for idx, region in enumerate(self.regions):
             region_mask = self.get_grid_region(region)
             fill_ratio = self.compute_fill_ratio(mask_grid, region_mask)
-            self.occupancy_grid.append(fill_ratio)
+            self.occupancy_grid[idx] = fill_ratio
             #self.occupancy_grid[int(ord(region[0]) - ord("A"))][int(region[1]) - 1] =  fill_ratio
 
-            # plot grid on the mask
-            if verbose:
-              pts_to_draw_front = np.array([self.point_A, self.point_B, self.point_C, self.point_D], np.int32)
-              pts_to_draw_front = pts_to_draw_front.reshape((-1,1,2))
-              pts_to_draw_front_left = np.array([self.point_A, self.point_D, self.point_depth_left, self.point_lateral_left], np.int32)
-              pts_to_draw_front_left = pts_to_draw_front_left.reshape((-1,1,2))
-              pts_to_draw_front_right = np.array([self.point_B, self.point_C, self.point_depth_right, self.point_lateral_right], np.int32)
-              pts_to_draw_front_right = pts_to_draw_front_right.reshape((-1,1,2))
-              cv2.polylines(mask_grid, [pts_to_draw_front, pts_to_draw_front_left, pts_to_draw_front_right], True, (255,0,255), 2)
+            # plot grid on the mas
               
               # plot level warning (increasing with red intensity) on the mask
               #mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :] = mask_grid[coords[0][1]:coords[1][1], coords[0][0]:coords[1][0], :]/2
@@ -182,19 +174,17 @@ class obstacle_segmenter():
         #cv2.line(cv_image, (self.x2, self.y0), (self.x2, self.y3), (0, 0, 255), 3) 
         #cv2.line(cv_image, (self.x3, self.y0), (self.x3, self.y3), (255, 0, 255), 3) 
         #cv2.line(cv_image, (self.x4, self.y0), (self.x4, self.y3), (255, 0, 255), 3) 
+        
+        if verbose:
+              pts_to_draw_front = np.array([self.point_A, self.point_B, self.point_C, self.point_D], np.int32)
+              pts_to_draw_front = pts_to_draw_front.reshape((-1,1,2))
+              pts_to_draw_front_left = np.array([self.point_A, self.point_D, self.point_depth_left, self.point_lateral_left], np.int32)
+              pts_to_draw_front_left = pts_to_draw_front_left.reshape((-1,1,2))
+              pts_to_draw_front_right = np.array([self.point_B, self.point_C, self.point_depth_right, self.point_lateral_right], np.int32)
+              pts_to_draw_front_right = pts_to_draw_front_right.reshape((-1,1,2))
+              cv2.polylines(mask_grid, [pts_to_draw_front, pts_to_draw_front_left, pts_to_draw_front_right], True, (255,0,255), 2)
 
         ros_image = self.bridge.cv2_to_imgmsg(mask_grid)
-        self.image_pub.publish(ros_image)
-    
-    def get_front_mask(self):
-        try:
-          data = rospy.wait_for_message("/robot1/camera1/image_raw",Image)
-
-          cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-          print(e)
-        
-        ros_image = self.bridge.cv2_to_imgmsg(self.front_mask)
         self.image_pub.publish(ros_image)
         
 

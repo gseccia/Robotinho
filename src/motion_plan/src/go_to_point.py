@@ -1,21 +1,21 @@
 #! /usr/bin/env python
 
-# import ros stuff
+import math
+
 import rospy
-from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist, Point
 from nav_msgs.msg import Odometry
-from tf import transformations
 from std_srvs.srv import *
-
-import math
+from tf import transformations
 
 # robot state variables
 active_ = False
 position_ = Point()
 yaw_ = 0
+
 # machine state
 state_ = 0
+
 # goal
 desired_position_ = Point()
 desired_position_.x = 0
@@ -26,6 +26,7 @@ desired_position_.z = 0
 yaw_precision_ = math.pi / 45  # +/- 4 degree allowed
 dist_precision_ = 0.3
 
+
 # service callback
 def go_to_point_switch(req):
     global active_
@@ -34,6 +35,7 @@ def go_to_point_switch(req):
     res.success = True
     res.message = 'Done!'
     return res
+
 
 # publishers
 pub = None
@@ -52,7 +54,7 @@ def fix_yaw(des_pos):
 
     twist_msg = Twist()
     if math.fabs(err_yaw) > yaw_precision_:
-        twist_msg.angular.z = 0.5 if err_yaw > 0 else -0.5
+        twist_msg.angular.z = 1.8 if err_yaw > 0 else -1.8
 
     pub.publish(twist_msg)
 
@@ -71,7 +73,7 @@ def go_straight_ahead(des_pos):
 
     if err_pos > dist_precision_:
         twist_msg = Twist()
-        twist_msg.linear.x = 0.3
+        twist_msg.linear.x = 0.4
         pub.publish(twist_msg)
     else:
         print 'Position error: [%s]' % err_pos
@@ -129,7 +131,7 @@ def main():
         if not active_:
             continue
         else:
-            print("State: ",state_, "Desidered: ",desired_position_)
+            print("State: ", state_, "Desidered: ", desired_position_)
             if state_ == 0:
                 fix_yaw(desired_position_)
             elif state_ == 1:
@@ -140,6 +142,7 @@ def main():
                 rospy.logerr('Unknown state!')
 
         rate.sleep()
+
 
 if __name__ == "__main__":
     main()

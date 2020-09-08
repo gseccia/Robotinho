@@ -1,25 +1,19 @@
 #! /usr/bin/env python
 
-# import ros stuff
-import rospy
-import numpy as np
-# import ros message
-from geometry_msgs.msg import Point
-from std_msgs.msg import Float32MultiArray
-#from sensor_msgs.msg import LaserScan
-from nav_msgs.msg import Odometry
-from tf import transformations
-from gazebo_msgs.msg import ModelState
-from gazebo_msgs.srv import SetModelState
-# import ros service
-from std_srvs.srv import *
-
 import math
+
+import numpy as np
+import rospy
+from geometry_msgs.msg import Point
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32MultiArray
+from std_srvs.srv import *
+from tf import transformations
 
 srv_client_go_to_point_ = None
 srv_client_wall_follower_ = None
 yaw_ = 0
-yaw_error_allowed_ = 5 * (math.pi / 180) # 5 degrees
+yaw_error_allowed_ = 5 * (math.pi / 180)  # 5 degrees
 position_ = Point()
 initial_position_ = None
 desired_position_ = Point()
@@ -29,8 +23,10 @@ desired_position_.z = 0
 regions_ = None
 state_desc_ = ['Go to point', 'wall following']
 state_ = 0
-count_state_time_ = 0 # seconds the robot is in a state
+count_state_time_ = 0  # seconds the robot is in a state
 count_loop_ = 0
+
+
 # 0 - go to point
 # 1 - wall following
 
@@ -53,22 +49,25 @@ def clbk_odom(msg):
     euler = transformations.euler_from_quaternion(quaternion)
     yaw_ = euler[2]
 
+
 def clbk_desired_position(msg):
     global desired_position_
 
     desired_position_ = msg.pose.pose.position
 
+
 def clbk_occupancy_grid(msg):
     global regions_
-    occupancy_grid = np.reshape(msg.data,(3,5))
-    max_value=20
+    occupancy_grid = msg.data
+    max_value = 20
     regions_ = {
-        'right':  max_value,
-        'fright': min(max(0, max_value-int(occupancy_grid[1][4]*max_value)), max_value),
-        'front':  min(max(0, max_value-int(np.sum(occupancy_grid[2][1:4])*max_value)), max_value),
-        'fleft':  min(max(0, max_value-int(occupancy_grid[1][0]*max_value)), max_value),
-        'left':   max_value,
-    }
+            'left': max_value,
+            'fleft': min(max(0, max_value - int(occupancy_grid[1] * max_value)), max_value),
+            'front': min(max(0, max_value - int(np.sum(occupancy_grid[0]) * max_value * 3)), max_value),
+            'fright': min(max(0, max_value - int(occupancy_grid[2] * max_value)), max_value),
+            'right': max_value
+        }
+
 
 def change_state(state):
     global state_, state_desc_
@@ -85,12 +84,14 @@ def change_state(state):
         resp = srv_client_go_to_point_(False)
         resp = srv_client_wall_follower_(True)
 
+
 def distance_to_line(p0):
     # p0 is the current position
     # p1 and p2 points define the line
     global initial_position_, desired_position_
     p1 = initial_position_
     p2 = desired_position_
+
     # here goes the equation
     up_eq = math.fabs((p2.y - p1.y) * p0.x - (p2.x - p1.x) * p0.y + (p2.x * p1.y) - (p2.y * p1.x))
     lo_eq = math.sqrt(pow(p2.y - p1.y, 2) + pow(p2.x - p1.x, 2))
@@ -98,15 +99,18 @@ def distance_to_line(p0):
 
     return distance
 
+
 def normalize_angle(angle):
-    if(math.fabs(angle) > math.pi):
+    if (math.fabs(angle) > math.pi):
         angle = angle - (2 * math.pi * angle) / (math.fabs(angle))
     return angle
+
 
 def main():
     global regions_, position_, desired_position_, state_, yaw_, yaw_error_allowed_
     global srv_client_go_to_point_, srv_client_wall_follower_
     global count_state_time_, count_loop_
+
     print("Start Node")
 
     rospy.init_node('bug2')
@@ -139,30 +143,27 @@ def main():
 
     while not rospy.is_shutdown():
         if regions_ == None or initial_position_ == None:
-            print("Regions         : ",regions_ )
-
-            print("Initial Position: ",initial_position_ )
+            print("Regions         : ", regions_)
+            print("Initial Position: ", initial_position_)
             continue
-        print("State: ",state_)
+        print("State: ", state_)
 
         distance_position_to_line = distance_to_line(position_)
 
-        if state_ == 0:
-            if regions_['front'] < 15: # and regions_['front'] < 1:
-                change_state(1)
-
-        elif state_ == 1:
-            if count_state_time_ > 5 and \
-               distance_position_to_line < 1.0:
-                change_state(0)
+        if state_ == 0 and regions_['front'] < 15:
+            change_state(1)
+        elif state_ == 1 and count_state_time_ > 5 and distance_position_to_line < 1.0:
+            change_state(0)
 
         count_loop_ = count_loop_ + 1
         if count_loop_ == 20:
             count_state_time_ = count_state_time_ + 1
             count_loop_ = 0
 
-        rospy.loginfo("distance to line: [%.2f], position: [%.2f, %.2f]", distance_to_line(position_), position_.x, position_.y)
+        rospy.loginfo("distance to line: [%.2f], position: [%.2f, %.2f]", distance_to_line(position_), position_.x,
+                      position_.y)
         rate.sleep()
+
 
 if __name__ == "__main__":
     main()
