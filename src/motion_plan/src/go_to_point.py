@@ -24,7 +24,7 @@ desired_position_.z = 0
 
 # parameters
 yaw_precision_ = math.pi / 45  # +/- 4 degree allowed
-dist_precision_ = 0.3
+dist_precision_ = 0.1
 
 
 # service callback

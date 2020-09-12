@@ -51,9 +51,10 @@ def clbk_odom(msg):
 
 
 def clbk_desired_position(msg):
-    global desired_position_
+    global desired_position_, pub_desPosition
 
     desired_position_ = msg.pose.pose.position
+    pub_desPosition.publish(msg)
 
 
 def clbk_occupancy_grid(msg):
@@ -110,6 +111,7 @@ def main():
     global regions_, position_, desired_position_, state_, yaw_, yaw_error_allowed_
     global srv_client_go_to_point_, srv_client_wall_follower_
     global count_state_time_, count_loop_
+    global pub_desPosition
 
     print("Start Node")
 
@@ -118,7 +120,8 @@ def main():
     sub_occupancy_grip = rospy.Subscriber('/occupancy_grid', Float32MultiArray, clbk_occupancy_grid)
     sub_odom = rospy.Subscriber('/robot1/odom', Odometry, clbk_odom)
 
-    sub_desPosition = rospy.Subscriber('/robot1/desired_position', Odometry, clbk_desired_position)
+    sub_desPosition = rospy.Subscriber('/robot1/bug2_desired_position', Odometry, clbk_desired_position)
+    pub_desPosition = rospy.Publisher('/robot1/desired_position', Odometry,queue_size=1)
 
     rospy.wait_for_service('/go_to_point_switch')
     rospy.wait_for_service('/wall_follower_switch')

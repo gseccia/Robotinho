@@ -12,6 +12,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
 from std_msgs.msg import String, Bool
 from tf import transformations
+from std_srvs.srv import *
 
 LEFT = -1
 RIGHT = 1
@@ -28,6 +29,7 @@ class RobotinhoPlanner:
 
         self.ball_position_subscriber = rospy.Subscriber("/robot_ball_position", String, self.ballPositionUpdate)
         self.desired_Position = rospy.Publisher('/robot1/desired_position', Odometry, queue_size=1)
+        self.exploration_desired_Position = rospy.Publisher('/robot1/bug2_desired_position', Odometry, queue_size=1)
         self.positionUpdateSub = rospy.Subscriber("/robot1/odom", Odometry, self.positionUpdate)
         self.controlRobot = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size=1)
 
@@ -64,7 +66,14 @@ class RobotinhoPlanner:
         self.obstaclePresence = False
         self.availablePosition = None
 
-        self.distance_error = 0.3
+        self.distance_error = 0.1
+        self.rate = rospy.Rate(100)
+
+        self.reachDone = False
+        
+        rospy.wait_for_service('/go_to_point_switch')
+        self.go_to_point_service = rospy.ServiceProxy('/go_to_point_switch', SetBool)
+
 
         print("DONE!")
 
@@ -100,6 +109,7 @@ class RobotinhoPlanner:
             y2 = ball_dict["y2"]
             # print("{0},{1} - {2},{3} ".format(x1,y1,x2,y2))
             self.ball_center = (int(x2) + int(x1)) / 2
+            self.ball_low_y = y2
             if int(y2) > 360 - 60:
                 self.ball_attached = True
             else:
@@ -112,6 +122,7 @@ class RobotinhoPlanner:
 
     def searchBallBehaviour(self):
         print("SEARCH BALL BEHAVIOUR")
+        self.reachDone = False
         if self.ball_last_position is not None:
 
             vel_msg = Twist()
@@ -158,7 +169,7 @@ class RobotinhoPlanner:
 
                 while not rospy.is_shutdown() and self.current_distance > self.distance_error and (
                         self.availablePosition is None or self.availablePosition) and self.ball_center is None:
-                    self.desired_Position.publish(msg)
+                    self.exploration_desired_Position.publish(msg)
                     self.explorePositionPub.publish(msg)
                     self.current_distance = sqrt(pow(x - self.current_x, 2) + pow(y - self.current_y, 2))
 
@@ -191,17 +202,20 @@ class RobotinhoPlanner:
 
             # Reach The Ball
             ball_center = self.ball_center
+            y_low = self.ball_low_y
 
             vel_msg = Twist()
             while not rospy.is_shutdown() and not self.ball_attached and ball_center is not None:
                 angular = - (float(ball_center) - 320) / 640 if ball_center is not None and not 320 - 5 < ball_center < 320 + 5 else 0
 
                 vel_msg.angular.z = 6.0 * angular
-                vel_msg.linear.x = 0.25 * (1.0 - abs(float(ball_center) - 320) / (640))
+                vel_msg.linear.x = 0.1 * (1.0 - abs(float(ball_center) - 320) / (640)) + 0.25 * float(y_low)/320
 
                 self.controlRobot.publish(vel_msg)
+                self.rate.sleep()
 
                 ball_center = self.ball_center
+                y_low = self.ball_low_y
 
             """distance = 0.3
             msg.pose.pose.position.x = self.current_x + (distance) * cos(
@@ -233,11 +247,14 @@ class RobotinhoPlanner:
                     vel_msg.angular.z = 1.0 if 320 - ball_center > 0 else -1.0
                     vel_msg.linear.x = 0
                     self.controlRobot.publish(vel_msg)
+                    self.rate.sleep()
                     ball_center = self.ball_center
                 
                 vel_msg.angular.z = 0
                 vel_msg.linear.x = 0
                 self.controlRobot.publish(vel_msg)
+            
+            self.reachDone = True
     
     def reachPose(self,pose,distance_error = 0.1):
         velMsg = Twist()
@@ -252,14 +269,14 @@ class RobotinhoPlanner:
                 velMsg.angular.z = -1.2
             else:
                 velMsg.angular.z = 1.2
-            print("Current Angle: {0} Desid angle: {1} Angular Error: {2} ABS Angular Error: {3} Control Vel: {4}".format(self.current_theta,desid_angle,self.current_theta - desid_angle,abs(self.current_theta - desid_angle),velMsg.angular.z),end = "\r")
+            # print("Current Angle: {0} Desid angle: {1} Angular Error: {2} ABS Angular Error: {3} Control Vel: {4}".format(self.current_theta,desid_angle,self.current_theta - desid_angle,abs(self.current_theta - desid_angle),velMsg.angular.z),end = "\r")
             self.controlRobot.publish(velMsg)
 
         print("Kick Pose Linear")
         velMsg.linear.x = 0.4
         velMsg.angular.z = 0
         while not rospy.is_shutdown() and sqrt(pow(pose.x - self.current_x, 2) + pow(pose.y - self.current_y,2)) > distance_error:
-            print("Error Pose: {0} Pose: {1} {2} Current: {3} {4}".format(sqrt(pow(pose.x - self.current_x, 2) + pow(pose.y - self.current_y,2)),pose.x,pose.y,self.current_x,self.current_y),end = "\r")
+            # print("Error Pose: {0} Pose: {1} {2} Current: {3} {4}".format(sqrt(pow(pose.x - self.current_x, 2) + pow(pose.y - self.current_y,2)),pose.x,pose.y,self.current_x,self.current_y),end = "\r")
             if self.current_theta - desid_angle > 0.1:
                 velMsg.angular.z = -1.2
                 velMsg.linear.x = 0
@@ -279,8 +296,10 @@ class RobotinhoPlanner:
     def goalBehavior(self):
         print("GOAL Behaviour!")
         ballEstimationPosition = Point()
-        ballEstimationPosition.x = self.current_x + 0.2 * cos(self.current_theta)
-        ballEstimationPosition.y = self.current_y + 0.2 * sin(self.current_theta)
+        ballEstimationPosition.x = self.current_x + 0.3 * cos(self.current_theta)
+        ballEstimationPosition.y = self.current_y + 0.3 * sin(self.current_theta)
+
+        print("Ball Estimation: ",ballEstimationPosition.x,ballEstimationPosition.y)
 
         meanPortPose = Point()
         meanPortPose.x = (self.port[0][0][0] + self.port[0][1][0]) / 2
@@ -296,14 +315,18 @@ class RobotinhoPlanner:
         
         kickAngle = atan2(meanPortPose.y - ballEstimationPosition.y,meanPortPose.x - ballEstimationPosition.x)
         print("Kick Angle: ",kickAngle * 180 / pi)
-        
-        kickPose.y = ballEstimationPosition.y + 0.4*sin(kickAngle)
-        kickPose.x = ballEstimationPosition.x + -0.4*cos(kickAngle)
 
-        middleStepKickPose1.x = ballEstimationPosition.x + 0.4*cos(kickAngle + pi/2)
-        middleStepKickPose1.y = ballEstimationPosition.y + 0.4*sin(kickAngle + pi/2)
-        middleStepKickPose2.x = ballEstimationPosition.x + 0.4*cos(kickAngle - pi/2)
-        middleStepKickPose2.y = ballEstimationPosition.y + 0.4*sin(kickAngle - pi/2)
+        m = (ballEstimationPosition.y - meanPortPose.y) / (ballEstimationPosition.x - meanPortPose.x)
+
+        kickPose.x = ballEstimationPosition.x - 0.45*cos(kickAngle)
+        kickPose.y = meanPortPose.y + m * (kickPose.x  - meanPortPose.x) 
+        
+
+        middleStepKickPose1.x = ballEstimationPosition.x + 0.45*sin(kickAngle)
+        middleStepKickPose1.y = ballEstimationPosition.y - (1/m) * (middleStepKickPose1.x - ballEstimationPosition.x)
+
+        middleStepKickPose2.x = ballEstimationPosition.x - 0.45*sin(kickAngle)
+        middleStepKickPose2.y = ballEstimationPosition.y - (1/m) * (middleStepKickPose2.x - ballEstimationPosition.x)
 
         if sqrt(pow(middleStepKickPose1.x - self.current_x, 2) + pow(middleStepKickPose1.y - self.current_y,2)) > \
                 sqrt(pow(middleStepKickPose2.x - self.current_x, 2) + pow(middleStepKickPose2.y - self.current_y,2)):
@@ -311,10 +334,6 @@ class RobotinhoPlanner:
         else:
             middleStepKickPose = middleStepKickPose1
         
-
-        """kickPose.x = ballEstimationPosition.x - 0.45
-        kickPose.y = 0.1 + meanPortPose.y + (ballEstimationPosition.y - meanPortPose.y) * \
-                                   (kickPose.x  - meanPortPose.x) / (ballEstimationPosition.x - meanPortPose.x)"""
         
 
         distancePose = sqrt(pow(middleStepKickPose.x - self.current_x, 2) + pow(middleStepKickPose.y - self.current_y,2))
@@ -324,22 +343,56 @@ class RobotinhoPlanner:
 
         print("Distance from middle pose: ",distancePose)
         if distanceKickPose > distancePose and distancePose > 0.1:
-            self.reachPose(middleStepKickPose, distance_error = 0.1)
+            self.go_to_point_service(True)
+            msg.pose.pose.position.x = middleStepKickPose.x
+            msg.pose.pose.position.y = middleStepKickPose.y
+            while not rospy.is_shutdown() and sqrt(pow(msg.pose.pose.position.x - self.current_x, 2) + pow(msg.pose.pose.position.y - self.current_y,
+                                                                           2)) > self.distance_error:
+                self.desired_Position.publish(msg)
         
+
         distancePose = sqrt(pow(kickPose.x - self.current_x, 2) + pow(kickPose.y - self.current_y,2))
         print("Distance from kick pose: ",distancePose)
-        if distancePose > 0.15:
-            self.reachPose(kickPose, distance_error = 0.15)
+        if distancePose > 0.10:
+            self.go_to_point_service(True)
+            msg.pose.pose.position.x = kickPose.x
+            msg.pose.pose.position.y = kickPose.y
+            while not rospy.is_shutdown() and sqrt(pow(msg.pose.pose.position.x - self.current_x, 2) + pow(msg.pose.pose.position.y - self.current_y,
+                                                                           2)) > self.distance_error:
+                self.desired_Position.publish(msg)
+        
+        print("init rotation")
+        velMsg = Twist()
+        velMsg.linear.x = 0
+        velMsg.angular.z = 1.2
+        desid_angle = kickAngle
+        while not rospy.is_shutdown() and abs(self.current_theta - desid_angle) > 0.05:
+            if (self.current_theta - desid_angle)/abs(self.current_theta - desid_angle) > 0:
+                velMsg.angular.z = -1.2
+            else:
+                velMsg.angular.z = 1.2
+            self.controlRobot.publish(velMsg)
+        velMsg.angular.z = 0 
+        self.controlRobot.publish(velMsg)
+        print("End Rotation")
 
         print("Goal Pose")
-    
         msg.pose.pose.position.x = meanPortPose.x
         msg.pose.pose.position.y = meanPortPose.y
+        self.go_to_point_service(True)
         while not rospy.is_shutdown() and sqrt(pow(msg.pose.pose.position.x - self.current_x, 2) + pow(msg.pose.pose.position.y - self.current_y,
-                                                                           2)) > self.distance_error:
+                                                                           2)) > self.distance_error and (self.ball_center is not None and 320 - 220 < self.ball_center < 320 + 220) :
             self.desired_Position.publish(msg)
         
-        self.is_goal = True
+        # STOP
+        msg.pose.pose.position.x = self.current_x
+        msg.pose.pose.position.y = self.current_y
+        self.desired_Position.publish(msg)
+
+        if sqrt(pow(meanPortPose.x - self.current_x, 2) + pow(meanPortPose.y - self.current_y,2)) <= self.distance_error:
+            self.is_goal = True
+        else:
+            self.reachDone = False
 
     def planningOnTheFly(self):
         print("RUN")
@@ -347,7 +400,7 @@ class RobotinhoPlanner:
         while not rospy.is_shutdown() and not self.is_goal:
             if self.ball_center is None:
                 self.searchBallBehaviour()
-            elif self.ball_attached:
+            elif self.reachDone:
                 self.goalBehavior()
             else:
                 self.reachTheBallBehaviour()
