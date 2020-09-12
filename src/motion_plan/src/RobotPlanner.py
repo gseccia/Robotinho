@@ -4,6 +4,7 @@ from __future__ import print_function
 import itertools
 import json
 from math import pow, sqrt, cos, sin, atan2,pi
+import time
 
 import rospy
 from cv_bridge import CvBridge, CvBridgeError
@@ -124,17 +125,27 @@ class RobotinhoPlanner:
         print("SEARCH BALL BEHAVIOUR")
         self.reachDone = False
         if self.ball_last_position is not None:
+            current_time = time.time()
+            last_time = current_time
+            current_timeout = 0
+            timeout = 5
 
             vel_msg = Twist()
             startingPoint = (self.current_x,self.current_y)
             while not rospy.is_shutdown() and self.ball_center is None \
-                and sqrt(pow(startingPoint[0] - self.current_x,2) + pow(self.current_y - startingPoint[1],2)) < 2.0:
+                and sqrt(pow(startingPoint[0] - self.current_x,2) + pow(self.current_y - startingPoint[1],2)) < 2.0 \
+                and current_time < timeout:
                 angular = (self.current_theta - self.ball_last_position[2])
 
                 vel_msg.angular.z = 6.0 * angular
-                vel_msg.linear.x = 0.7
+                vel_msg.linear.x = 0.6
 
                 self.controlRobot.publish(vel_msg)
+                self.rate.sleep()
+
+                last_time = current_time
+                current_time = time.time()
+                current_time += current_time - last_time
             
             vel_msg.angular.z = 0
             vel_msg.linear.x = 0
@@ -152,10 +163,17 @@ class RobotinhoPlanner:
                     minIndex = i
 
             exploredPoint = 0
+            markedExploredPoint = {}
             nextPoint = minIndex
+            timeout = 10
 
             while exploredPoint < len(self.explorationPoints):
+                
+                while nextPoint in markedExploredPoint:
+                    nextPoint = (nextPoint + 1) % len(self.explorationPoints)
+                
                 x, y = self.explorationPoints[nextPoint]
+                markedExploredPoint[nextPoint] = True
 
                 msg = Odometry()
                 msg.pose.pose.position.x = x
@@ -166,21 +184,26 @@ class RobotinhoPlanner:
                 self.current_distance = sqrt(pow(x - self.current_x, 2) + pow(y - self.current_y, 2))
 
                 print("Going to: ", x, y)
+                current_time = time.time()
+                last_time = current_time
+                current_timeout = 0
 
-                while not rospy.is_shutdown() and self.current_distance > self.distance_error and (
-                        self.availablePosition is None or self.availablePosition) and self.ball_center is None:
+                while not rospy.is_shutdown() and self.current_distance > self.distance_error and current_timeout < timeout and self.ball_center is None:
                     self.exploration_desired_Position.publish(msg)
                     self.explorePositionPub.publish(msg)
                     self.current_distance = sqrt(pow(x - self.current_x, 2) + pow(y - self.current_y, 2))
+                    current_time = time.time()
+                    current_timeout += current_time - last_time
+                    last_time = current_time
 
-                    print("Current Distance: ", self.current_distance, " Available Position: ", self.availablePosition,
-                        "Current DesPosition ", msg.pose.pose.position, end="\r")
+                    print("Current Distance: ", self.current_distance, "Current DesPosition ", msg.pose.pose.position, end="\r")
 
                 if rospy.is_shutdown() or self.ball_center is not None:
                     break
-
+                if current_timeout >= timeout:
+                    print("TimeOut!")
+                
                 exploredPoint += 1
-                nextPoint = (nextPoint + 1) % len(self.explorationPoints)
 
                 print("End ")
 
@@ -364,17 +387,35 @@ class RobotinhoPlanner:
         print("init rotation")
         velMsg = Twist()
         velMsg.linear.x = 0
-        velMsg.angular.z = 1.2
+        velMsg.angular.z = 1.8
         desid_angle = kickAngle
         while not rospy.is_shutdown() and abs(self.current_theta - desid_angle) > 0.05:
             if (self.current_theta - desid_angle)/abs(self.current_theta - desid_angle) > 0:
-                velMsg.angular.z = -1.2
+                velMsg.angular.z = -1.8
             else:
-                velMsg.angular.z = 1.2
+                velMsg.angular.z = 1.8
             self.controlRobot.publish(velMsg)
         velMsg.angular.z = 0 
         self.controlRobot.publish(velMsg)
         print("End Rotation")
+
+        print("Reach Ball")
+        vel_msg = Twist()
+        ball_center = self.ball_center
+        while not rospy.is_shutdown() and not self.ball_attached and ball_center is not None:
+            angular = - (float(ball_center) - 320) / 640 if ball_center is not None and not 320 - 5 < ball_center < 320 + 5 else 0
+
+            vel_msg.angular.z = 6.0 * angular
+            vel_msg.linear.x = 0.25 * (1.0 - abs(float(ball_center) - 320) / (640))
+
+            self.controlRobot.publish(vel_msg)
+            self.rate.sleep()
+
+            ball_center = self.ball_center
+        vel_msg.angular.z = 0
+        vel_msg.linear.x = 0
+        self.controlRobot.publish(vel_msg)
+        print("End reach")
 
         print("Goal Pose")
         msg.pose.pose.position.x = meanPortPose.x
