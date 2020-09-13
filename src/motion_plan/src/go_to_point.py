@@ -17,10 +17,7 @@ yaw_ = 0
 state_ = 0
 
 # goal
-desired_position_ = Point()
-desired_position_.x = 0
-desired_position_.y = 0
-desired_position_.z = 0
+desired_position_ = None
 
 # parameters
 yaw_precision_ = math.pi / 45  # +/- 4 degree allowed
@@ -118,7 +115,7 @@ def clbk_odom(msg):
 
 
 def main():
-    global pub, active_
+    global pub, active_, desired_position_
 
     rospy.init_node('go_to_point')
     pub = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size=1)
@@ -128,7 +125,7 @@ def main():
 
     rate = rospy.Rate(20)
     while not rospy.is_shutdown():
-        if not active_:
+        if not active_ or desired_position_ is None:
             continue
         else:
             print("State: ", state_, "Desidered: ", desired_position_)
