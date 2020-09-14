@@ -64,7 +64,7 @@ class RobotinhoPlanner:
 
         # Parameters
         self.distance_error = 0.1
-        self.rate = rospy.Rate(100)
+        self.rate = rospy.Rate(10)
 
         # Others
         self.waitchar = 0
@@ -104,7 +104,7 @@ class RobotinhoPlanner:
             else:
                 self.ball_attached = False
             
-            angleValue = (float(self.ball_center) - 320) * pi / (4*640)
+            angleValue = (float(self.ball_center) - 320) * pi / (8*640)
 
             ball_angle = self.current_theta + angleValue
             self.ball_last_position = (self.current_x, self.current_y,ball_angle)
@@ -131,13 +131,12 @@ class RobotinhoPlanner:
             print("Angle Ball: ",self.ball_last_position[2] * 180 / pi)
             
             print("Angle : ",self.current_theta*180/pi)
-            print("Ball center :  ",self.ball_center is not None)
             while not rospy.is_shutdown() and self.ball_center is None \
                 and abs(self.current_theta - self.ball_last_position[2]) > 0.1 \
                 and current_timeout < timeout:
-                print("Ruota!")
+                # print("Ruota!")
 
-                angular = -(self.ball_last_position[2] - self.current_theta)
+                angular = -(self.ball_last_position[2] - self.current_theta) / pi
 
                 vel_msg.linear.x = 0
                 vel_msg.angular.z = 6.0 * angular
@@ -149,12 +148,16 @@ class RobotinhoPlanner:
                 current_time = time.time()
                 current_timeout += current_time - last_time
             
+            vel_msg.angular.z = 0
+            vel_msg.linear.x = 0
+            self.controlRobot.publish(vel_msg)
+            print("Angle : ",self.current_theta*180/pi)
             last_time = current_time
             current_timeout = 0
             while not rospy.is_shutdown() and self.ball_center is None \
                 and sqrt(pow(startingPoint[0] - self.current_x,2) + pow(self.current_y - startingPoint[1],2)) < 2.0 \
                 and current_timeout < timeout:
-                print("Avanti!")
+                # print("Avanti!")
 
                 vel_msg.angular.z = 0
                 vel_msg.linear.x = 0.7
@@ -177,11 +180,18 @@ class RobotinhoPlanner:
             minDistance = float("inf")
 
             # Take min-distance point
-            for i, (x, y) in enumerate(self.explorationPoints[:8]):
-                distance = sqrt(pow(x - self.current_x, 2) + pow(y - self.current_y, 2))
-                if minDistance > distance:
-                    minDistance = distance
-                    minIndex = i
+            if  -pi/2 <= self.current_theta <= pi/2:
+                searchMinList = self.explorationPoints[:8]
+                forwardCondition = lambda x: x >= self.current_x
+            else:
+                searchMinList = self.explorationPoints[8:]
+                forwardCondition = lambda x: x <= self.current_x
+            
+            for i, (x, y) in enumerate(searchMinList):
+                    distance = sqrt(pow(x - self.current_x, 2) + pow(y - self.current_y, 2))
+                    if minDistance > distance and forwardCondition(x):
+                        minDistance = distance
+                        minIndex = i
 
             exploredPoint = 0
             markedExploredPoint = {}
@@ -284,8 +294,8 @@ class RobotinhoPlanner:
         print("GOAL Behaviour!")
         # Ball Position Estimation
         ballEstimationPosition = Point()
-        ballEstimationPosition.x = self.current_x + 0.2 * cos(self.current_theta)
-        ballEstimationPosition.y = self.current_y + 0.2 * sin(self.current_theta)
+        ballEstimationPosition.x = self.current_x + 0.3 * cos(self.current_theta)
+        ballEstimationPosition.y = self.current_y + 0.3 * sin(self.current_theta)
 
         print("Ball Estimation: ",ballEstimationPosition.x,ballEstimationPosition.y)
 

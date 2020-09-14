@@ -1,8 +1,8 @@
 <launch>
   <node name="ball_detector" pkg="ball_detector" type="ball_detector.py"  />
-  <node name="go_to_point" pkg="motion_plan" type="go_to_point.py" output="screen" />
+  <node name="go_to_point" pkg="motion_plan" type="go_to_point.py" />
   <node name="follow_wall" pkg="motion_plan" type="follow_wall.py" />
-  <node name="MapRepresentation" pkg="motion_planner" type="robotinhoMapRepresentation.py" />
+  <node name="robot_planner" pkg="motion_plan" type="RobotPlanner.py" output="screen" />
   <node name="bug2" pkg="motion_plan" type="bug2.py" />
   <node name="occupancy_grid" pkg="occupancy_grid" type="occupancy_grid_module_v2.py" />
 </launch>
