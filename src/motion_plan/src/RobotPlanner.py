@@ -315,15 +315,15 @@ class RobotinhoPlanner:
         # Goal Position
         meanPortPose = Point()
         meanPortPose.x = (self.port[self.portChoose][0][0] + self.port[self.portChoose][1][0]) / 2
-        yPort = self.port[self.portChoose][0][1] + 0.2
+        yPort = self.port[self.portChoose][0][1] + 0.25
         minYPort = 0
         distanceY = float("inf")
         currentDistance = lambda y : sqrt(pow(ballEstimationPosition.x - meanPortPose.x, 2) + pow(ballEstimationPosition.y - y,2))
-        while yPort <= self.port[self.portChoose][1][1] - 0.2:
+        while yPort <= self.port[self.portChoose][1][1] - 0.25:
             if distanceY > currentDistance(yPort):
                 distanceY = currentDistance(yPort)
                 minYPort = yPort
-            yPort += 0.2
+            yPort += 0.15
         meanPortPose.y = minYPort
 
         # meanPortPose.y = (self.port[0][0][1] + self.port[0][1][1]) / 2
