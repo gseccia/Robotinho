@@ -142,6 +142,7 @@ class RobotinhoPlanner:
                 vel_msg.linear.x = 0
                 vel_msg.angular.z = 0
                 self.controlRobot.publish(vel_msg)
+                self.ball_last_position = None
             else:
                 # Exists a last ball position ==> Search near last ball position
                 print("LAST BALL BEHAV")
@@ -265,7 +266,6 @@ class RobotinhoPlanner:
             y_low = self.ball_low_y
 
             vel_msg = Twist()
-            print("Ball center:",ball_center)
             while not rospy.is_shutdown() and not self.ball_attached and ball_center is not None:
                 angular = - (float(ball_center) - 320) / 640 if ball_center is not None and not 320 - 5 < ball_center < 320 + 5 else 0
 
@@ -277,7 +277,6 @@ class RobotinhoPlanner:
 
                 ball_center = self.ball_center
                 y_low = self.ball_low_y
-                print("Ball center:",ball_center)
 
             # STOP
             vel_msg.angular.z = 0
@@ -445,6 +444,7 @@ class RobotinhoPlanner:
     
     def idleBehaviour(self):
         self.is_goal = False
+        self.ball_last_position = None
         print("Waiting start signal "+self.waitSignals[self.waitchar],end = "\r")
         self.waitchar = (self.waitchar + 1) % 4
         self.rate.sleep()
