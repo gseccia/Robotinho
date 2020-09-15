@@ -20,7 +20,7 @@ class obstacle_segmenter():
     def __init__(self):
         print("Segmenter Initialization...",end="")
         self.image_pub = rospy.Publisher("/robot_obstacle_seg_output",Image, queue_size = 1)
-        self.occupancy_grid_pub = rospy.Publisher("/occupancy_grid",Float32MultiArray, queue_size = 1)
+        self.visual_range_grid_pub = rospy.Publisher("/visual_range_grid",Float32MultiArray, queue_size = 1)
         self.image_wh = [640,360]
 
         #pyramidal grid view to approximate laser scan representation
@@ -73,8 +73,8 @@ class obstacle_segmenter():
         cv2.fillPoly(self.front_right_mask, np.array([[self.point_B, self.point_C, self.point_depth_right, self.point_lateral_right]], dtype=np.int32), 255)
 
 
-        # self.occupancy_grid = [[0 for i in range(len(self.vertical_cropping) - 1)] for j in range(len(self.horizontal_cropping))]
-        self.occupancy_grid = np.zeros(3)
+        # self.visual_range_grid = [[0 for i in range(len(self.vertical_cropping) - 1)] for j in range(len(self.horizontal_cropping))]
+        self.visual_range_grid = np.zeros(3)
         self.image = None
 
 
@@ -139,8 +139,8 @@ class obstacle_segmenter():
         for idx, region in enumerate(self.regions):
             region_mask = self.get_grid_region(region)
             fill_ratio = self.compute_fill_ratio(mask_grid, region_mask)
-            self.occupancy_grid[idx] = fill_ratio
-            #self.occupancy_grid[int(ord(region[0]) - ord("A"))][int(region[1]) - 1] =  fill_ratio
+            self.visual_range_grid[idx] = fill_ratio
+            #self.visual_range_grid[int(ord(region[0]) - ord("A"))][int(region[1]) - 1] =  fill_ratio
 
             # plot grid on the mas
               
@@ -161,9 +161,9 @@ class obstacle_segmenter():
         msg.layout.dim[0].size = 3
         msg.layout.dim[0].stride = 1
 
-        msg.data = np.array(self.occupancy_grid)
+        msg.data = np.array(self.visual_range_grid)
 
-        self.occupancy_grid_pub.publish(msg)
+        self.visual_range_grid_pub.publish(msg)
 
         #mask_grid = cv2.cvtColor(mask_grid, cv2.COLOR_GRAY2BGR)
 

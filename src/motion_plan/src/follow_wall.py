@@ -128,7 +128,7 @@ def main():
 
     rospy.init_node('wall_follower')
     pub_ = rospy.Publisher('/robot1/cmd_vel', Twist, queue_size=1)
-    sub = rospy.Subscriber('/occupancy_grid', Float32MultiArray, clbk_occupancy_grid)
+    sub = rospy.Subscriber('/visual_range_grid', Float32MultiArray, clbk_occupancy_grid)
     srv = rospy.Service('wall_follower_switch', SetBool, wall_follower_switch)
 
     rate = rospy.Rate(20)

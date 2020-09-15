@@ -242,6 +242,8 @@ class RobotinhoPlanner:
 
                 if rospy.is_shutdown() or self.ball_center is not None:
                     self.nextPoint = nextPoint - 1 if nextPoint - 1 > 0 else 0
+                    break
+                    
                 if current_timeout >= timeout:
                     print("TimeOut!")
                 

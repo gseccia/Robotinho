@@ -117,7 +117,7 @@ def main():
 
     rospy.init_node('bug2')
 
-    sub_occupancy_grip = rospy.Subscriber('/occupancy_grid', Float32MultiArray, clbk_occupancy_grid)
+    sub_occupancy_grip = rospy.Subscriber('/visual_range_grid', Float32MultiArray, clbk_occupancy_grid)
     sub_odom = rospy.Subscriber('/robot1/odom', Odometry, clbk_odom)
 
     sub_desPosition = rospy.Subscriber('/robot1/bug2_desired_position', Odometry, clbk_desired_position)

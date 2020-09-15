@@ -3,6 +3,7 @@ from __future__ import print_function
 
 import json
 import sys
+import os
 
 import cv2
 import numpy as np
@@ -19,10 +20,12 @@ class ball_detector:
         self.image_pub = rospy.Publisher("/robot_detector_output", Image, queue_size=1)
         self.ball_position_pub = rospy.Publisher("/robot_ball_position", String, queue_size=1)
         self.bridge = CvBridge()
+        
+        dir_path = os.path.dirname(os.path.realpath(__file__))
 
-        self.yolo = YOLO(model_path='/home/mivia/Robotinho/src/ball_detector/src/weights.h5',
-                         anchors_path='/home/mivia/Robotinho/src/ball_detector/src/tiny_yolo_anchors.txt',
-                         classes_path='/home/mivia/Robotinho/src/ball_detector/src/soccer_ball_classes.txt',
+        self.yolo = YOLO(model_path=os.path.join(dir_path,'weights.h5'),
+                         anchors_path=os.path.join(dir_path,'tiny_yolo_anchors.txt'),
+                         classes_path=os.path.join(dir_path,'soccer_ball_classes.txt'),
                          score=0.2,
                          iou=0.3,
                          model_image_size=(320, 640), )
