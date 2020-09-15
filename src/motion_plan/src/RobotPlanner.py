@@ -21,6 +21,7 @@ class RobotinhoPlanner:
         print("Planner Initialization...")
         # Goal Position
         self.port = [((6.1, -1.0), (6.1, 1.0)), ((-6.1, -1.0), (-6.1, 1.0))]
+        self.portChoose = 0
 
         # Odometry
         self.current_x = 0
@@ -49,12 +50,11 @@ class RobotinhoPlanner:
         for i, x in enumerate(xPoint):
             self.explorationPoints.append((x, yPoint[i % 2 ]))
         
-        self.rate = rospy.Rate(50)
-
         # Robot Status
         self.is_goal = False
         self.reachDone = False
         self.start = False
+        self.goalBehaviourMovement = False
 
         # Ball Status
         self.ball_position = None
@@ -64,7 +64,7 @@ class RobotinhoPlanner:
 
         # Parameters
         self.distance_error = 0.1
-        self.rate = rospy.Rate(10)
+        self.rate = rospy.Rate(100)
 
         # Others
         self.waitchar = 0
@@ -117,63 +117,73 @@ class RobotinhoPlanner:
         print("SEARCH BALL BEHAVIOUR")
         self.reachDone = False
         if self.ball_last_position is not None:
-            # Exists a last ball position ==> Search near last ball position
-            print("LAST BALL POSITION")
-            current_time = time.time()
-            last_time = current_time
-            current_timeout = 0
-            timeout = 5
+            if self.goalBehaviourMovement:
+                print("Last goal behaviour")
+                current_time = time.time()
+                last_time = current_time
+                current_timeout = 0
+                timeout = 7
 
-            vel_msg = Twist()
-            startingPoint = (self.current_x,self.current_y)
+                vel_msg = Twist()
 
-            print("Last Ball: ",self.ball_last_position[:2])
-            print("Angle Ball: ",self.ball_last_position[2] * 180 / pi)
-            
-            print("Angle : ",self.current_theta*180/pi)
-            while not rospy.is_shutdown() and self.ball_center is None \
-                and abs(self.current_theta - self.ball_last_position[2]) > 0.1 \
-                and current_timeout < timeout:
-                # print("Ruota!")
+                while not rospy.is_shutdown() and self.ball_center is None \
+                    and current_timeout < timeout:
 
-                angular = -(self.ball_last_position[2] - self.current_theta) / pi
+                    vel_msg.linear.x = 0
+                    vel_msg.angular.z = 1.2
 
+                    self.controlRobot.publish(vel_msg)
+                    self.rate.sleep()
+
+                    last_time = current_time
+                    current_time = time.time()
+                    current_timeout += current_time - last_time
+                
                 vel_msg.linear.x = 0
-                vel_msg.angular.z = 6.0 * angular
-
+                vel_msg.angular.z = 0
                 self.controlRobot.publish(vel_msg)
-                self.rate.sleep()
+            else:
+                # Exists a last ball position ==> Search near last ball position
+                print("LAST BALL BEHAV")
+                current_time = time.time()
+                last_time = current_time
+                current_timeout = 0
+                timeout = 5
+
+                vel_msg = Twist()
+                startingPoint = (self.current_x,self.current_y)
 
                 last_time = current_time
-                current_time = time.time()
-                current_timeout += current_time - last_time
-            
-            vel_msg.angular.z = 0
-            vel_msg.linear.x = 0
-            self.controlRobot.publish(vel_msg)
-            print("Angle : ",self.current_theta*180/pi)
-            last_time = current_time
-            current_timeout = 0
-            while not rospy.is_shutdown() and self.ball_center is None \
-                and sqrt(pow(startingPoint[0] - self.current_x,2) + pow(self.current_y - startingPoint[1],2)) < 2.0 \
-                and current_timeout < timeout:
-                # print("Avanti!")
+                current_timeout = 0
+                print("Start Position: ",self.current_x,self.current_y)
+                while not rospy.is_shutdown() and self.ball_center is None \
+                    and sqrt(pow(startingPoint[0] - self.current_x,2) + pow(self.current_y - startingPoint[1],2)) < 1.3 \
+                    and current_timeout < timeout:
+
+                    if abs(self.current_theta - self.ball_last_position[2]) < 0.1:
+                        vel_msg.angular.z = 0
+                    elif (self.ball_last_position[2] - self.current_theta) < 0:
+                        vel_msg.angular.z = 1.2
+                    else:
+                        vel_msg.angular.z = -1.2
+                    
+                    vel_msg.linear.x = 0.7
+
+                    self.controlRobot.publish(vel_msg)
+                    self.rate.sleep()
+
+                    last_time = current_time
+                    current_time = time.time()
+                    current_timeout += current_time - last_time
+                
+                print("End Position: ",self.current_x,self.current_y)
 
                 vel_msg.angular.z = 0
-                vel_msg.linear.x = 0.7
-
+                vel_msg.linear.x = 0
                 self.controlRobot.publish(vel_msg)
                 self.rate.sleep()
-
-                last_time = current_time
-                current_time = time.time()
-                current_timeout += current_time - last_time
-            
-            vel_msg.angular.z = 0
-            vel_msg.linear.x = 0
-            self.controlRobot.publish(vel_msg)
-            self.rate.sleep()
-            self.ball_last_position = None
+                self.ball_last_position = None
+            self.goalBehaviourMovement = False
         else:
             # Exhaustive search of the ball
             minIndex = 0
@@ -255,6 +265,7 @@ class RobotinhoPlanner:
             y_low = self.ball_low_y
 
             vel_msg = Twist()
+            print("Ball center:",ball_center)
             while not rospy.is_shutdown() and not self.ball_attached and ball_center is not None:
                 angular = - (float(ball_center) - 320) / 640 if ball_center is not None and not 320 - 5 < ball_center < 320 + 5 else 0
 
@@ -266,6 +277,7 @@ class RobotinhoPlanner:
 
                 ball_center = self.ball_center
                 y_low = self.ball_low_y
+                print("Ball center:",ball_center)
 
             # STOP
             vel_msg.angular.z = 0
@@ -292,6 +304,8 @@ class RobotinhoPlanner:
 
     def goalBehavior(self):
         print("GOAL Behaviour!")
+        self.goalBehaviourMovement = True
+
         # Ball Position Estimation
         ballEstimationPosition = Point()
         ballEstimationPosition.x = self.current_x + 0.3 * cos(self.current_theta)
@@ -301,8 +315,19 @@ class RobotinhoPlanner:
 
         # Goal Position
         meanPortPose = Point()
-        meanPortPose.x = (self.port[0][0][0] + self.port[0][1][0]) / 2
-        meanPortPose.y = (self.port[0][0][1] + self.port[0][1][1]) / 2
+        meanPortPose.x = (self.port[self.portChoose][0][0] + self.port[self.portChoose][1][0]) / 2
+        yPort = self.port[self.portChoose][0][1] + 0.2
+        minYPort = 0
+        distanceY = float("inf")
+        currentDistance = lambda y : sqrt(pow(ballEstimationPosition.x - meanPortPose.x, 2) + pow(ballEstimationPosition.y - y,2))
+        while yPort <= self.port[self.portChoose][1][1] - 0.2:
+            if distanceY > currentDistance(yPort):
+                distanceY = currentDistance(yPort)
+                minYPort = yPort
+            yPort += 0.2
+        meanPortPose.y = minYPort
+
+        # meanPortPose.y = (self.port[0][0][1] + self.port[0][1][1]) / 2
 
         msg = Odometry()
 
