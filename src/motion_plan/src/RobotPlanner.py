@@ -55,6 +55,7 @@ class RobotinhoPlanner:
         self.reachDone = False
         self.start = False
         self.goalBehaviourMovement = False
+        self.nextPoint = None
 
         # Ball Status
         self.ball_position = None
@@ -99,7 +100,7 @@ class RobotinhoPlanner:
             # print("{0},{1} - {2},{3} ".format(x1,y1,x2,y2))
             self.ball_center = (int(x2) + int(x1)) / 2
             self.ball_low_y = y2
-            if int(y2) > 360 - 60:
+            if int(y2) > 360 - 100:
                 self.ball_attached = True
             else:
                 self.ball_attached = False
@@ -168,7 +169,7 @@ class RobotinhoPlanner:
                     else:
                         vel_msg.angular.z = -1.2
                     
-                    vel_msg.linear.x = 0.7
+                    vel_msg.linear.x = 0.5
 
                     self.controlRobot.publish(vel_msg)
                     self.rate.sleep()
@@ -206,7 +207,8 @@ class RobotinhoPlanner:
 
             exploredPoint = 0
             markedExploredPoint = {}
-            nextPoint = minIndex
+            nextPoint = self.nextPoint if self.nextPoint is not None else minIndex
+            self.nextPoint = None
             timeout = 60
 
             # Explore each point
@@ -239,7 +241,7 @@ class RobotinhoPlanner:
                     # print("Current Distance: ", self.current_distance, "Current DesPosition ", msg.pose.pose.position, end="\r")
 
                 if rospy.is_shutdown() or self.ball_center is not None:
-                    break
+                    self.nextPoint = nextPoint - 1 if nextPoint - 1 > 0 else 0
                 if current_timeout >= timeout:
                     print("TimeOut!")
                 
@@ -250,7 +252,7 @@ class RobotinhoPlanner:
             # STOP
             msg.pose.pose.position.x = self.current_x
             msg.pose.pose.position.y = self.current_y
-            self.desired_Position.publish(msg)
+            self.exploration_desired_Position.publish(msg)
 
     ## Reaching ball behaviour
     def reachTheBallBehaviour(self):
@@ -299,7 +301,7 @@ class RobotinhoPlanner:
                 vel_msg.linear.x = 0
                 self.controlRobot.publish(vel_msg)
             
-            self.reachDone = True
+            self.reachDone = self.ball_attached
 
     def goalBehavior(self):
         print("GOAL Behaviour!")
@@ -307,8 +309,10 @@ class RobotinhoPlanner:
 
         # Ball Position Estimation
         ballEstimationPosition = Point()
-        ballEstimationPosition.x = self.current_x + 0.3 * cos(self.current_theta)
-        ballEstimationPosition.y = self.current_y + 0.3 * sin(self.current_theta)
+        distanceEstimation = 0.3 * ( 1 - abs(320.0 - float(self.ball_center))/640.0 )
+        print("Distance Estimation: ",distanceEstimation)
+        ballEstimationPosition.x = self.current_x + distanceEstimation * cos(self.current_theta)
+        ballEstimationPosition.y = self.current_y + distanceEstimation * sin(self.current_theta)
 
         print("Ball Estimation: ",ballEstimationPosition.x,ballEstimationPosition.y)
 

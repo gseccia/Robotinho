@@ -1,5 +1,5 @@
 <launch>
-  <node name="ball_detector" pkg="ball_detector" type="ball_detector.py"  />
+  <node name="ball_detector" pkg="ball_detector" type="ball_detector.py" />
   <node name="go_to_point" pkg="motion_plan" type="go_to_point.py" />
   <node name="follow_wall" pkg="motion_plan" type="follow_wall.py" />
   <node name="robot_planner" pkg="motion_plan" type="RobotPlanner.py" output="screen" />
